@@ -1,0 +1,158 @@
+---
+title: "Creating Budgets and Converting Them to Projects"
+sidebarTitle: "Budgets"
+description: "Build itemized cost estimates with Gestor Financiero's budget module. Set a utility margin, generate a PDF quotation, then convert to a live project."
+---
+
+The **Presupuestos** module lets you estimate the cost of a job before committing to it. You build a detailed, line-item budget broken down by materials, labour, and additional expenses, apply a utility margin to arrive at a recommended sale price, and deliver a professional PDF quotation to your client. If the client approves, a single click converts the presupuesto into a live project — no re-entry required — and from that point on you can track real spending against the original estimate.
+
+## Budget Header Fields
+
+| Field | Type | Description |
+|---|---|---|
+| `nombre` | string (max 200 chars) | Name of the project being quoted |
+| `cliente` | string (max 200 chars) | Client name |
+| `tipo` | string (max 60 chars) | Project type — same options as a regular project (Construcción, Remodelación, Muebles, Mantenimiento, Otro) |
+| `utilidad_pct` | decimal (≥ 0) | Desired utility/markup percentage applied on top of total cost |
+
+## Budget States
+
+A presupuesto has exactly two states:
+
+| State | Label | Meaning |
+|---|---|---|
+| `borrador` | Borrador | Draft — can be edited, items added or removed, and deleted |
+| `convertido` | Convertido | Converted to a live project — locked for editing and cannot be deleted |
+
+## Budget Line Items
+
+The cost of a job is built up from individual **partidas** (line items). Each item belongs to one of the three cost categories and represents a specific concept within that category.
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `categoria` | string | Yes | `materiales`, `mano_obra`, or `gastos` |
+| `concepto` | string (max 200 chars) | Yes | The specific item being costed (e.g. "Madera", "Carpintería") |
+| `descripcion` | string (max 500 chars) | No | Optional detail or specification |
+| `monto` | decimal (> 0) | Yes | Estimated cost of this item |
+
+Items are grouped in the UI by their category — Materiales, Mano de obra, and Gastos adicionales — with a running subtotal per section. The same subconcept lists used for salidas apply here (see [Finances](/features/finances)).
+
+## Budget Summary Calculations
+
+Every time items change, the backend recalculates the budget summary via `logica.resumen_presupuesto()`:
+
+```python
+# logica.py
+def resumen_presupuesto(presupuesto, items):
+    tot = {"materiales": 0, "mano_obra": 0, "gastos": 0}
+    for it in items:
+        if it["categoria"] in tot:
+            tot[it["categoria"]] += it["monto"]
+
+    costo_total   = tot["materiales"] + tot["mano_obra"] + tot["gastos"]
+    util_pct      = presupuesto.get("utilidad_pct") or 0
+    precio_venta  = costo_total * (1 + util_pct / 100)
+    utilidad_monto = precio_venta - costo_total
+    margen_pct    = (utilidad_monto / precio_venta * 100) if precio_venta else 0
+    ...
+```
+
+| Field | Formula | Meaning |
+|---|---|---|
+| `costo_total` | `materiales + mano_obra + gastos` | Sum of all estimated costs before markup |
+| `precio_venta` | `costo_total × (1 + utilidad_pct / 100)` | Recommended sale price including the utility margin |
+| `utilidad_monto` | `precio_venta − costo_total` | Absolute value of the projected profit |
+| `margen_pct` | `utilidad_monto / precio_venta × 100` | Profit as a percentage of the sale price (gross margin) |
+
+The resumen is returned as part of every presupuesto response so the UI can display live figures while you adjust items or the utility percentage.
+
+## PDF Quotation
+
+Once your budget has at least one item you can generate a client-ready quotation document:
+
+```
+GET /presupuestos/{id}/pdf
+```
+
+The download is named `cotizacion_{nombre}.pdf`. The ReportLab-generated PDF contains:
+
+- A header with your company name/logo, the project name, client, type, and creation date.
+- A table of line items grouped by category, each with concept, description, and amount, plus a subtotal per category.
+- A pricing summary showing `costo_total`, the utility amount, and the final `precio_venta` highlighted in blue.
+- A footer noting that the quotation is referential and subject to confirmation.
+
+The **Exportar cotización PDF** button in the UI is disabled while `costo_total` is zero.
+
+## Converting a Budget to a Project
+
+When the client approves the quotation, convert the presupuesto to an active project:
+
+```
+POST /presupuestos/{id}/convertir
+```
+
+The backend validates that there is at least one cost item (i.e., `costo_total > 0`), then atomically:
+
+1. Creates a new project with the presupuesto's `nombre`, `cliente`, and `tipo`.
+2. Sets the project's contracted `total` to the rounded `precio_venta`.
+3. Marks the presupuesto's `estado` as `convertido` and stores the new project's `id` in `proyecto_id`.
+
+The new project starts in the `iniciando` state and appears immediately on the active dashboard.
+
+<Warning>
+  Once a presupuesto has been converted it cannot be deleted. It remains in the system as a permanent record of the original estimate. The API returns HTTP 400 with the message *"Este presupuesto ya es un proyecto activo; queda guardado como registro y no se puede eliminar."* if a delete is attempted.
+</Warning>
+
+## Budget vs. Actual Comparison
+
+For projects that originated from a presupuesto, the project detail page shows a live comparison of estimated versus real costs:
+
+```
+GET /proyectos/{id}/comparacion
+```
+
+If no presupuesto is linked the response contains `{ "tiene_presupuesto": false }`. When one is linked the response includes a full `comparacion` object with per-category breakdowns:
+
+```python
+# logica.py – comparacion_presupuesto_real
+def fila(estimado, real_val):
+    desv = real_val - estimado
+    return {
+        "estimado": estimado,
+        "real": real_val,
+        "desviacion": desv,
+        "desviacion_pct": (desv / estimado * 100) if estimado else None,
+    }
+```
+
+Each category row (materiales, mano_obra, gastos, costo_total) and the utility row show the estimated figure, the real figure from actual salidas, the absolute deviation, and the percentage deviation. A positive deviation on costs means you spent more than budgeted; a positive deviation on utility means you earned more than projected.
+
+<Tip>
+  Link each salida to its corresponding presupuesto item (via `partida_id`) as you record expenses. This gives the comparison view the most accurate per-category breakdown. Expenses recorded without a category are summed in `sin_categoria` and counted in the overall cost total but do not appear in any individual category row.
+</Tip>
+
+## Full Budget Workflow
+
+<Steps>
+  <Step title="Create the budget">
+    Click **Nuevo presupuesto** and enter the project name, client name, and your desired utility percentage. The budget starts in `borrador` state.
+  </Step>
+  <Step title="Add cost items">
+    Open the budget and add partidas under Materiales, Mano de obra, and Gastos adicionales. The summary recalculates in real time with each addition.
+  </Step>
+  <Step title="Set type and review the summary">
+    Choose the project type and fine-tune the utility percentage until the `precio_venta` and `margen_pct` match your target.
+  </Step>
+  <Step title="Download the PDF quotation">
+    Click **Exportar cotización PDF** to download the client-ready document. Share it with the client for approval.
+  </Step>
+  <Step title="Convert to a project">
+    Once the client agrees, click **Convertir en proyecto**. The system creates a new project with `precio_venta` as its contracted total and locks the presupuesto.
+  </Step>
+  <Step title="Track real expenses">
+    Record salidas against the project. When the category matches a budget category, optionally load the matching partida to pre-fill the description and monto.
+  </Step>
+  <Step title="Compare budget vs. actual">
+    Open the **Presupuesto vs. resultado real** section on the project detail page to see how real spending tracks against the original estimate.
+  </Step>
+</Steps>

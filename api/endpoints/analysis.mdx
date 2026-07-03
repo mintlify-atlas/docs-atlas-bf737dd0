@@ -1,0 +1,250 @@
+---
+title: "Analysis Endpoint: Financial Performance Indicators"
+sidebarTitle: "Analysis"
+description: "GET /analisis — returns profitability indicators for completed projects. Supports filtering by year, month, and quarter."
+---
+
+The `/analisis` endpoint aggregates the financial outcomes of all closed projects into a set of performance indicators. It separates finalized projects (those that reached full completion) from cancelled ones, computing totals, profitability rankings, and loss detection for each group independently. All monetary values come directly from each project's recorded income entries (`entradas`) and expense entries (`salidas`) — the contracted total (`total`) is carried along for reference but does not drive the computed profit figures. Filters let you narrow the analysis to a specific calendar year, month, or quarter, making it easy to compare performance across periods.
+
+---
+
+## GET /analisis
+
+Returns financial performance data for all finalized and cancelled projects, optionally filtered by time period.
+
+```bash
+curl -X GET "http://localhost:8000/analisis?anio=2024&trimestre=2" \
+  --cookie "sesion=<token>"
+```
+
+<Note>
+  In-progress projects are always excluded. Only projects with `estado` equal to `"finalizado"` or `"cancelado"` **and** a non-null `fecha_fin` value are considered. Projects that are still running — regardless of their active sub-state (`iniciando`, `proceso`, `acabando`, `pausa`) — never appear in analysis results.
+</Note>
+
+### Query Parameters
+
+<ParamField query="anio" type="string">
+  Filter by the 4-digit year of `fecha_fin`. Use `"todos"` (or omit) to include all years. Example: `"2024"`.
+</ParamField>
+
+<ParamField query="mes" type="string">
+  Filter by the 2-digit month of `fecha_fin`. Valid values: `"01"` through `"12"`. Use `"todos"` (or omit) to include all months. Example: `"03"` for March.
+</ParamField>
+
+<ParamField query="trimestre" type="string">
+  Filter by quarter of `fecha_fin`. Valid values: `"1"`, `"2"`, `"3"`, `"4"`. Use `"todos"` (or omit) to include all quarters.
+
+  | Value | Months covered |
+  |---|---|
+  | `"1"` | January – March |
+  | `"2"` | April – June |
+  | `"3"` | July – September |
+  | `"4"` | October – December |
+</ParamField>
+
+<Note>
+  Filters are cumulative. Supplying `anio=2024&trimestre=3` returns only projects with a `fecha_fin` between July and September 2024.
+</Note>
+
+---
+
+### Response Structure
+
+```json
+{
+  "proyectos": [...],
+  "indicadores": {...},
+  "cancelados": [...],
+  "indicadores_cancelados": {...}
+}
+```
+
+<ResponseField name="proyectos" type="array">
+  Array of project summary objects for **finalized** projects that match the current filter. See [Project Item Schema](#project-item-schema) below.
+</ResponseField>
+
+<ResponseField name="indicadores" type="object | null">
+  Aggregated performance indicators for the finalized projects in `proyectos`. `null` when no finalized projects match the filter. See [indicadores fields](#indicadores).
+</ResponseField>
+
+<ResponseField name="cancelados" type="array">
+  Array of project summary objects for **cancelled** projects that match the filter. Same schema as `proyectos`.
+</ResponseField>
+
+<ResponseField name="indicadores_cancelados" type="object | null">
+  Aggregated summary for the cancelled projects in `cancelados`. `null` when no cancelled projects match the filter. See [indicadores_cancelados fields](#indicadores_cancelados).
+</ResponseField>
+
+---
+
+### Project Item Schema
+
+Each object in `proyectos` and `cancelados` has the following fields:
+
+<ResponseField name="id" type="integer">
+  Project ID.
+</ResponseField>
+
+<ResponseField name="nombre" type="string">
+  Project name.
+</ResponseField>
+
+<ResponseField name="cliente" type="string">
+  Client name.
+</ResponseField>
+
+<ResponseField name="total" type="decimal">
+  Contracted total (the amount agreed with the client at project creation or conversion from a budget).
+</ResponseField>
+
+<ResponseField name="ganancia" type="decimal">
+  Realized profit: `total_entradas − total_salidas`. Can be negative.
+</ResponseField>
+
+<ResponseField name="total_entradas" type="decimal">
+  Sum of all income entries recorded for this project.
+</ResponseField>
+
+<ResponseField name="total_salidas" type="decimal">
+  Sum of all expense entries recorded for this project.
+</ResponseField>
+
+<ResponseField name="duracion" type="integer | null">
+  Calendar days between `fecha_inicio` and `fecha_fin`. `null` if either date is missing or malformed.
+</ResponseField>
+
+<ResponseField name="estado" type="string">
+  Raw state value — `"finalizado"` or `"cancelado"`.
+</ResponseField>
+
+<ResponseField name="estado_texto" type="string">
+  Human-readable state label (e.g. `"Finalizado"`, `"Cancelado"`).
+</ResponseField>
+
+<ResponseField name="estado_color" type="string">
+  UI colour token for the state badge (e.g. `"verde"` for finalized, `"rojo"` for cancelled).
+</ResponseField>
+
+<ResponseField name="fecha_inicio" type="string">
+  Project start date in ISO 8601 format (e.g. `"2024-01-10"`).
+</ResponseField>
+
+<ResponseField name="fecha_fin" type="string">
+  Project end/closure date in ISO 8601 format.
+</ResponseField>
+
+---
+
+### indicadores
+
+The `indicadores` object is `null` when there are no finalized projects in the filtered set. Otherwise it contains:
+
+<ResponseField name="ingresos_totales" type="decimal">
+  Sum of `total_entradas` across all finalized projects in the filter.
+</ResponseField>
+
+<ResponseField name="gastos_totales" type="decimal">
+  Sum of `total_salidas` across all finalized projects in the filter.
+</ResponseField>
+
+<ResponseField name="ganancia_total" type="decimal">
+  Sum of `ganancia` across all finalized projects in the filter. Equals `ingresos_totales − gastos_totales`.
+</ResponseField>
+
+<ResponseField name="cantidad" type="integer">
+  Count of finalized projects in the filter.
+</ResponseField>
+
+<ResponseField name="mas_rentable" type="object">
+  The project object with the **highest** `ganancia` value in the filter.
+</ResponseField>
+
+<ResponseField name="menos_rentable" type="object">
+  The project object with the **lowest** `ganancia` value in the filter (can be the project with the biggest loss).
+</ResponseField>
+
+<ResponseField name="proyectos_perdida" type="array">
+  Subset of finalized projects where `ganancia < 0`. Empty array if none.
+</ResponseField>
+
+<ResponseField name="mas_rapido" type="object | null">
+  The project with the **shortest** `duracion` among projects that have a non-null duration. `null` if no project has a duration value.
+</ResponseField>
+
+---
+
+### indicadores_cancelados
+
+The `indicadores_cancelados` object is `null` when there are no cancelled projects in the filtered set. Otherwise:
+
+<ResponseField name="cantidad" type="integer">
+  Count of cancelled projects in the filter.
+</ResponseField>
+
+<ResponseField name="total_cobrado" type="decimal">
+  Sum of `total_entradas` across all cancelled projects — income already collected before cancellation.
+</ResponseField>
+
+<ResponseField name="total_gastado" type="decimal">
+  Sum of `total_salidas` across all cancelled projects — expenses already incurred before cancellation.
+</ResponseField>
+
+<ResponseField name="neto" type="decimal">
+  `total_cobrado − total_gastado`. A negative value indicates a net loss across cancelled projects.
+</ResponseField>
+
+---
+
+### Example: Filter by Year and Quarter
+
+```bash
+curl -X GET "http://localhost:8000/analisis?anio=2024&trimestre=4" \
+  --cookie "sesion=<token>"
+```
+
+This returns performance data for all finalized and cancelled projects whose `fecha_fin` falls in October, November, or December 2024.
+
+**Example response (abbreviated):**
+
+```json
+{
+  "proyectos": [
+    {
+      "id": 12,
+      "nombre": "Remodelación Bodega Norte",
+      "cliente": "Distribuidora ABC",
+      "total": 85000,
+      "ganancia": 18400,
+      "total_entradas": 85000,
+      "total_salidas": 66600,
+      "duracion": 74,
+      "estado": "finalizado",
+      "estado_texto": "Finalizado",
+      "estado_color": "verde",
+      "fecha_inicio": "2024-10-01",
+      "fecha_fin": "2024-12-14"
+    }
+  ],
+  "indicadores": {
+    "ingresos_totales": 85000,
+    "gastos_totales": 66600,
+    "ganancia_total": 18400,
+    "cantidad": 1,
+    "mas_rentable": { "id": 12, "nombre": "Remodelación Bodega Norte", "ganancia": 18400 },
+    "menos_rentable": { "id": 12, "nombre": "Remodelación Bodega Norte", "ganancia": 18400 },
+    "proyectos_perdida": [],
+    "mas_rapido": { "id": 12, "nombre": "Remodelación Bodega Norte", "duracion": 74 }
+  },
+  "cancelados": [],
+  "indicadores_cancelados": null
+}
+```
+
+### Example: All-time summary
+
+```bash
+curl -X GET "http://localhost:8000/analisis" \
+  --cookie "sesion=<token>"
+```
+
+Omitting all query parameters (or passing `anio=todos&mes=todos&trimestre=todos`) returns indicators for every closed project in the database.

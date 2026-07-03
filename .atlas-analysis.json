@@ -1,0 +1,119 @@
+{
+  "projectType": "saas",
+  "projectName": "Gestor Financiero",
+  "projectDescription": "A full-stack web application for financial project management in small businesses, enabling teams to track client payments, expenses, budgets, and profitability with PDF export capabilities.",
+  "theme": "luma",
+  "primaryColor": "#2563EB",
+  "lightColor": "#EFF6FF",
+  "darkColor": "#1E3A5F",
+  "navigation": {
+    "tabs": [
+      {
+        "tab": "Guides",
+        "groups": [
+          {
+            "group": "Getting Started",
+            "pages": [
+              "introduction",
+              "quickstart",
+              "configuration"
+            ]
+          },
+          {
+            "group": "Core Features",
+            "pages": [
+              "features/projects",
+              "features/finances",
+              "features/budgets",
+              "features/analysis"
+            ]
+          },
+          {
+            "group": "Administration",
+            "pages": [
+              "admin/users",
+              "admin/security",
+              "admin/deployment"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "API Reference",
+        "groups": [
+          {
+            "group": "Overview",
+            "pages": [
+              "api/overview",
+              "api/authentication"
+            ]
+          },
+          {
+            "group": "Endpoints",
+            "pages": [
+              "api/endpoints/projects",
+              "api/endpoints/finances",
+              "api/endpoints/budgets",
+              "api/endpoints/users",
+              "api/endpoints/analysis"
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "keyFeatures": [
+    "Project lifecycle management with states: initiating, in-process, finishing, paused, finalized, cancelled",
+    "Client payment tracking (entradas) with contracted amount enforcement",
+    "Expense tracking (salidas) with supplier, category, and budget line-item linkage",
+    "Budget (presupuesto) creation with cost categories: materials, labor, and additional expenses",
+    "Budget-to-project conversion workflow with automatic pricing from utility percentage",
+    "Budget vs. actual cost comparison reports",
+    "Financial analysis dashboard with profitability indicators, filtered by year/month/quarter",
+    "PDF export for project closure reports and budget quotations via ReportLab",
+    "Role-based access control with admin and employee roles",
+    "Security: Argon2id password hashing, HttpOnly cookies, CSRF protection, brute-force lockout, rate limiting",
+    "Dual database support: SQLite for development, PostgreSQL for production",
+    "Dark/light/system theme preference per user"
+  ],
+  "publicApiSurface": [
+    "POST /login",
+    "POST /logout",
+    "GET /yo",
+    "POST /preferencias/tema",
+    "POST /cambiar-password",
+    "GET /usuarios",
+    "POST /usuarios",
+    "PUT /usuarios/{usuario_id}",
+    "POST /usuarios/{usuario_id}/password",
+    "DELETE /usuarios/{usuario_id}",
+    "GET /catalogos",
+    "GET /proyectos",
+    "GET /proyectos/{proyecto_id}",
+    "POST /proyectos",
+    "PUT /proyectos/{proyecto_id}",
+    "POST /proyectos/{proyecto_id}/estado",
+    "POST /proyectos/{proyecto_id}/finalizar",
+    "POST /proyectos/{proyecto_id}/cancelar",
+    "POST /proyectos/{proyecto_id}/pausar",
+    "POST /proyectos/{proyecto_id}/reanudar",
+    "POST /proyectos/{proyecto_id}/entradas",
+    "PUT /entradas/{entrada_id}",
+    "DELETE /entradas/{entrada_id}",
+    "POST /proyectos/{proyecto_id}/salidas",
+    "PUT /salidas/{salida_id}",
+    "DELETE /salidas/{salida_id}",
+    "GET /proyectos/{proyecto_id}/pdf",
+    "GET /proyectos/{proyecto_id}/comparacion",
+    "GET /presupuestos",
+    "GET /presupuestos/{presupuesto_id}",
+    "POST /presupuestos",
+    "PUT /presupuestos/{presupuesto_id}",
+    "DELETE /presupuestos/{presupuesto_id}",
+    "POST /presupuestos/{presupuesto_id}/items",
+    "DELETE /items/{item_id}",
+    "GET /presupuestos/{presupuesto_id}/pdf",
+    "POST /presupuestos/{presupuesto_id}/convertir",
+    "GET /analisis"
+  ]
+}

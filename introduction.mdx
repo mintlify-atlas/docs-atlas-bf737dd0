@@ -1,0 +1,83 @@
+---
+title: "Gestor Financiero: Financial Project Management for Small Businesses"
+sidebarTitle: "Introduction"
+description: "Learn what Gestor Financiero does, how its backend and frontend are structured, and which problems it solves for small business teams."
+---
+
+Gestor Financiero is a full-stack web application built for small businesses that need a clear, reliable picture of each project's financial health. Rather than juggling spreadsheets or disconnected tools, teams can record every client payment, every supplier expense, and every budget line item in one place — and see in real time whether a project is on track to be profitable. The backend is written in Python with FastAPI, the frontend in React with Vite, and the whole system is designed so that a developer can run it locally in minutes with zero infrastructure, then deploy it to a production server with PostgreSQL when the team is ready.
+
+## Project Lifecycle
+
+Every project in Gestor Financiero moves through a defined set of states that reflect the real stages of a service engagement:
+
+| State | Meaning |
+|---|---|
+| `iniciando` | Project has been created and work is about to begin |
+| `proceso` | Active work is underway |
+| `acabando` | Work is in the final stretch |
+| `pausa` | Project is temporarily suspended; pause periods are recorded and deducted from effective duration |
+| `finalizado` | Project is complete; can only be reached when the client total has been 100% collected |
+| `cancelado` | Project was stopped before completion |
+
+Projects move between `iniciando`, `proceso`, and `acabando` freely. Pausing a project freezes the active timer without losing the previous state — when resumed the project returns to wherever it was before the pause. Finalizing is gated: the API enforces that all contracted revenue has been received before a project can be marked `finalizado`.
+
+## Financial Model: Entradas and Salidas
+
+Each project has a **total** — the amount agreed with the client for the full engagement. Against that total, two streams of transactions are tracked:
+
+- **Entradas** (client payments): money received from the client. The sum of all entradas is compared to the contracted total to show a collection percentage. The total of all entradas cannot exceed the contracted project total.
+- **Salidas** (expenses): money paid out — to suppliers, for materials, for labor. Each salida records a date, supplier, description, amount, an optional category (`materiales`, `mano_obra`, `gastos`), and an optional link back to a budget line item.
+
+The **saldo** (balance) is the running difference between entradas and salidas. The **ganancia** (profit) is the amount the business has actually earned once all costs are accounted for.
+
+## Budget (Presupuesto) Workflow
+
+Before a project formally starts, teams can create a **presupuesto** (budget/quote) to estimate costs and set a selling price. A budget is built from line items grouped into three categories: `materiales`, `mano_obra`, and `gastos`. A configurable **utilidad_pct** (profit margin percentage) is applied on top of the cost total to compute the suggested selling price.
+
+Once the budget has been approved by the client, it can be converted into a live project with a single API call. Conversion copies the client name, project type, and computed selling price from the budget into a new project record, and marks the budget as `convertido` so it serves as a permanent reference. After conversion, the **comparison view** lets you track how actual salidas compare to each budget line — a real-time variance analysis between what was planned and what was spent.
+
+Budgets can also be exported as a PDF quotation document for sharing with clients directly.
+
+## Dual-Database Approach
+
+Gestor Financiero is designed to work with two different database engines without any code changes:
+
+- **SQLite** — used automatically in development when `DATABASE_URL` is not set. The database file is created at `backend/data/proyectos.db`. No server, no installation, no configuration needed.
+- **PostgreSQL** — used in production when `DATABASE_URL` is set to a valid connection string. A connection pool (min 1, max 10 connections) is opened at startup. The SQL layer in `bd.py` abstracts all dialect differences, including parameter placeholders and identity column syntax.
+
+## Key Features
+
+<CardGroup cols={2}>
+  <Card title="Project Management" icon="folder-open" href="/features/projects">
+    Create and manage projects through their full lifecycle. Track states, pause periods, and effective working days.
+  </Card>
+  <Card title="Finances" icon="coins" href="/features/finances">
+    Record client payments (entradas) and expenses (salidas). Monitor real-time balance, collection percentage, and profit.
+  </Card>
+  <Card title="Budgets" icon="file-invoice" href="/features/budgets">
+    Build itemized quotes with automatic profit margin calculation. Convert approved budgets into live projects and export PDF quotations.
+  </Card>
+  <Card title="Analysis" icon="chart-bar" href="/features/analysis">
+    Aggregate financial indicators across all finalized and cancelled projects. Filter by year, month, or quarter to spot trends.
+  </Card>
+  <Card title="User Administration" icon="users" href="/admin/users">
+    Manage team members with `admin` and `empleado` roles. The primary administrator account is protected from accidental deletion.
+  </Card>
+  <Card title="Security" icon="shield-check" href="/admin/security">
+    Argon2id password hashing, HttpOnly session cookies, CSRF protection, login rate limiting, and automatic 15-minute lockout after 5 failed attempts.
+  </Card>
+</CardGroup>
+
+## Request Flow
+
+Every action in the application follows the same path through the backend layers:
+
+```
+Frontend → api.py → auth.py → logica.py → database.py → bd.py → PostgreSQL / SQLite
+```
+
+- **`api.py`** — FastAPI route handlers. Validates input shapes with Pydantic, enforces rate limits, and applies security middleware (CORS, trusted hosts, security headers).
+- **`auth.py`** — Session and authentication layer. Verifies cookies, checks CSRF tokens, manages login attempts and lockouts, and enforces role-based access.
+- **`logica.py`** — Business rules and financial calculations. Validates project data, computes totals, percentages, and budget summaries.
+- **`database.py`** — SQL query layer. Contains all SELECT, INSERT, UPDATE, and DELETE statements.
+- **`bd.py`** — Database connection layer. Selects SQLite or PostgreSQL based on environment, manages the connection pool, and normalizes data types across engines.

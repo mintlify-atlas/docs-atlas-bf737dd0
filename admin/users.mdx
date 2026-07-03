@@ -1,0 +1,124 @@
+---
+title: "Managing Users and Roles in Gestor Financiero"
+sidebarTitle: "Users"
+description: "Create, edit, and delete user accounts in Gestor Financiero. Understand admin vs. employee roles and the principal admin protections."
+---
+
+Gestor Financiero supports two user roles — `admin` and `empleado` — giving you fine-grained control over who can manage the team and who can only work on projects and budgets. All user management actions are restricted to administrators and are enforced on the backend, not just in the UI.
+
+## Roles
+
+| Role | Can do |
+|---|---|
+| `admin` | Everything: create, edit, and delete users; all project and budget operations |
+| `empleado` | All project and budget operations; cannot manage users |
+
+## The Principal Admin
+
+On first boot, Gestor Financiero automatically creates one administrator account — the **principal admin**. This account is flagged in the database (`principal = 1`) and is permanently protected by the API. It cannot be edited or deleted through any endpoint, regardless of who is making the request. The system also enforces that at least one admin account must exist at all times, preventing the last remaining admin from being removed or downgraded.
+
+<Warning>
+The principal admin is the fallback account for your installation. If you lose access to all other admin accounts, this account is the only recovery path. **It cannot be deleted via the API.** Keep its credentials secure and change its initial password immediately after first login.
+</Warning>
+
+## User Fields
+
+When creating or editing a user, the following fields apply:
+
+| Field | Description | Constraints |
+|---|---|---|
+| `usuario` | Unique login username | Max 50 characters; must be unique across all users |
+| `nombre` | Display name shown in the UI | Max 120 characters |
+| `password` | Account password | Min 8 characters |
+| `rol` | User role | Must be `admin` or `empleado` |
+
+## Creating Users
+
+Only administrators can create new users. Send a `POST` request to `/usuarios` with the new user's details. The username must not already exist in the system.
+
+```bash
+# Example: create a new employee account
+curl -X POST https://yourdomain.com/usuarios \
+  -H "Content-Type: application/json" \
+  -H "X-CSRF-Token: <your-csrf-token>" \
+  -b "sesion=<your-session-cookie>" \
+  -d '{
+    "usuario": "jperez",
+    "nombre": "Juan Pérez",
+    "password": "SecurePass123",
+    "rol": "empleado"
+  }'
+```
+
+The API returns the newly created user's `id`, `usuario`, `nombre`, and `rol`.
+
+## Editing Users
+
+`PUT /usuarios/{id}` allows an admin to update a user's username, display name, role, and optionally set a new password.
+
+- The principal admin **cannot** be edited through this endpoint.
+- If you change the target user's password, all of their active sessions are closed immediately — they will need to log in again.
+- Downgrading the last remaining `admin` to `empleado` is blocked; the system requires at least one admin at all times.
+- Usernames must remain unique: the API rejects the change if the new username is already taken by a different user.
+
+```bash
+# Example: rename a user and assign them admin role
+curl -X PUT https://yourdomain.com/usuarios/3 \
+  -H "Content-Type: application/json" \
+  -H "X-CSRF-Token: <your-csrf-token>" \
+  -b "sesion=<your-session-cookie>" \
+  -d '{
+    "usuario": "jperez",
+    "nombre": "Juan Pérez",
+    "rol": "admin"
+  }'
+```
+
+To also set a new password in the same request, include `"nueva_password": "NewPass456"` in the body.
+
+## Resetting Passwords
+
+`POST /usuarios/{id}/password` is an admin-only endpoint that overwrites a user's password without requiring their current one. As soon as the password is changed, **all active sessions for that user are closed**.
+
+- Cannot be used on the principal admin — that account manages its own password through the standard `/cambiar-password` endpoint.
+- The new password must be at least 8 characters.
+
+```bash
+# Example: force-reset a user's password
+curl -X POST https://yourdomain.com/usuarios/3/password \
+  -H "Content-Type: application/json" \
+  -H "X-CSRF-Token: <your-csrf-token>" \
+  -b "sesion=<your-session-cookie>" \
+  -d '{"nueva": "ResetPass789"}'
+```
+
+## Deleting Users
+
+`DELETE /usuarios/{id}` permanently removes a user account. The following deletions are always blocked:
+
+- **Your own account** — you cannot delete yourself.
+- **The principal admin** — protected at the API level.
+- **The last remaining admin** — the system must always have at least one admin.
+
+```bash
+# Example: delete a user
+curl -X DELETE https://yourdomain.com/usuarios/4 \
+  -H "X-CSRF-Token: <your-csrf-token>" \
+  -b "sesion=<your-session-cookie>"
+```
+
+## Theme Preferences
+
+Each user can independently set their preferred UI theme. The available options are `claro` (light), `oscuro` (dark), and `sistema` (follow the OS setting). The preference is stored per user in the database and is returned on login via the `tema` field.
+
+Users update their own theme via `POST /preferencias/tema`:
+
+```bash
+curl -X POST https://yourdomain.com/preferencias/tema \
+  -H "Content-Type: application/json" \
+  -H "X-CSRF-Token: <your-csrf-token>" \
+  -b "sesion=<your-session-cookie>" \
+  -d '{"tema": "claro"}'
+```
+
+The API validates that the value is one of the three allowed options and rejects anything else with HTTP 400.

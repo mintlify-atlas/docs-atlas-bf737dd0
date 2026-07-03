@@ -1,0 +1,279 @@
+---
+title: "User Management Endpoints for Admins"
+sidebarTitle: "Users"
+description: "REST API reference for user management in Gestor Financiero. All endpoints require admin role. Create, edit, reset passwords, and delete user accounts."
+---
+
+User management in Gestor Financiero follows a strict two-role model: `admin` and `empleado`. Administrators can create new accounts, edit existing ones, reset passwords, and delete users. Every authenticated user — regardless of role — can change their own password via `POST /cambiar-password` and save their UI theme preference via `POST /preferencias/tema`. One special user, the **principal admin**, is bootstrapped automatically on first run and carries protections that prevent it from being edited, demoted, or deleted by other admins.
+
+<Warning>
+  All endpoints under `/usuarios` require the `admin` role. Requests made by users with the `empleado` role will receive a `403 Forbidden` response with the detail `"Solo un administrador puede hacer esto."`.
+</Warning>
+
+---
+
+## GET /usuarios
+
+Returns all user accounts registered in the system.
+
+```bash
+curl -X GET http://localhost:8000/usuarios \
+  --cookie "sesion=<token>"
+```
+
+### Response
+
+Returns an array of user objects.
+
+<ResponseField name="id" type="integer">
+  Unique user identifier.
+</ResponseField>
+
+<ResponseField name="usuario" type="string">
+  Login username.
+</ResponseField>
+
+<ResponseField name="nombre" type="string">
+  Display name.
+</ResponseField>
+
+<ResponseField name="rol" type="string">
+  Either `"admin"` or `"empleado"`.
+</ResponseField>
+
+<ResponseField name="principal" type="boolean">
+  `true` for the bootstrapped principal administrator account. Only one user will ever have this flag set.
+</ResponseField>
+
+---
+
+## POST /usuarios
+
+Creates a new user account. The username must be unique across the system.
+
+```bash
+curl -X POST http://localhost:8000/usuarios \
+  --cookie "sesion=<token>" \
+  -H "Content-Type: application/json" \
+  -H "X-CSRF-Token: <csrf>" \
+  -d '{
+    "usuario": "maria.lopez",
+    "nombre": "María López",
+    "password": "segura1234",
+    "rol": "empleado"
+  }'
+```
+
+### Request Body
+
+<ParamField body="usuario" type="string" required>
+  Login username. Maximum 50 characters. Must be unique — returns `400` if the username already exists.
+</ParamField>
+
+<ParamField body="nombre" type="string" required>
+  Full display name. Maximum 120 characters.
+</ParamField>
+
+<ParamField body="password" type="string" required>
+  Initial password. Maximum 128 characters. Must be at least **8 characters** long.
+</ParamField>
+
+<ParamField body="rol" type="string">
+  Role to assign. Must be `"admin"` or `"empleado"`. Defaults to `"empleado"` if omitted.
+</ParamField>
+
+### Response
+
+<ResponseField name="id" type="integer">
+  ID of the newly created user.
+</ResponseField>
+
+<ResponseField name="usuario" type="string">
+  Stored username (whitespace-trimmed).
+</ResponseField>
+
+<ResponseField name="nombre" type="string">
+  Stored display name (whitespace-trimmed).
+</ResponseField>
+
+<ResponseField name="rol" type="string">
+  Assigned role.
+</ResponseField>
+
+---
+
+## PUT /usuarios/\{usuario_id\}
+
+Edits an existing user's username, display name, role, and optionally their password in a single request.
+
+```bash
+curl -X PUT http://localhost:8000/usuarios/5 \
+  --cookie "sesion=<token>" \
+  -H "Content-Type: application/json" \
+  -H "X-CSRF-Token: <csrf>" \
+  -d '{
+    "usuario": "maria.lopez",
+    "nombre": "María López Ruiz",
+    "rol": "admin",
+    "nueva_password": "nuevaClave99"
+  }'
+```
+
+### Request Body
+
+<ParamField body="usuario" type="string" required>
+  New username. Maximum 50 characters. Must not conflict with another existing user.
+</ParamField>
+
+<ParamField body="nombre" type="string" required>
+  New display name. Maximum 120 characters. Cannot be blank.
+</ParamField>
+
+<ParamField body="rol" type="string" required>
+  New role. Must be `"admin"` or `"empleado"`.
+</ParamField>
+
+<ParamField body="nueva_password" type="string">
+  If provided, replaces the user's current password. Maximum 128 characters. Must be at least **8 characters** long.
+</ParamField>
+
+### Business rules
+
+- Returns `403` if `usuario_id` belongs to the principal admin.
+- Returns `400` if demoting the only remaining admin to `"empleado"` — at least one admin must always exist.
+- If `nueva_password` is set and the target user is **not** the requesting admin, all active sessions for that user are closed immediately, forcing a re-login.
+
+### Response
+
+Returns `{ id, usuario, nombre, rol }` for the updated account.
+
+---
+
+## POST /usuarios/\{usuario_id\}/password
+
+Resets another user's password. The target user's sessions are invalidated so they must log in again with the new credentials.
+
+```bash
+curl -X POST http://localhost:8000/usuarios/5/password \
+  --cookie "sesion=<token>" \
+  -H "Content-Type: application/json" \
+  -H "X-CSRF-Token: <csrf>" \
+  -d '{"nueva": "contrasenaReset1"}'
+```
+
+### Request Body
+
+<ParamField body="nueva" type="string" required>
+  New password for the target user. Must be at least **8 characters** long.
+</ParamField>
+
+<Note>
+  This endpoint cannot be used on the principal admin (`403`). To change the principal admin's own password, that user must use `POST /cambiar-password`.
+</Note>
+
+### Response
+
+```json
+{ "ok": true }
+```
+
+---
+
+## DELETE /usuarios/\{usuario_id\}
+
+Permanently deletes a user account.
+
+```bash
+curl -X DELETE http://localhost:8000/usuarios/5 \
+  --cookie "sesion=<token>" \
+  -H "X-CSRF-Token: <csrf>"
+```
+
+The following conditions each return a `400` or `403` error:
+
+| Condition | Status |
+|---|---|
+| Attempting to delete your own account | `400` |
+| Target user is the principal admin | `403` |
+| Target user is the last remaining admin | `400` |
+
+### Response
+
+```json
+{ "ok": true }
+```
+
+---
+
+## POST /cambiar-password
+
+Allows any authenticated user (admin or empleado) to change their own password. The current password must be provided for verification. All other active sessions for the current user are closed after a successful change.
+
+```bash
+curl -X POST http://localhost:8000/cambiar-password \
+  --cookie "sesion=<token>" \
+  -H "Content-Type: application/json" \
+  -H "X-CSRF-Token: <csrf>" \
+  -d '{
+    "actual": "passwordViejo1",
+    "nueva": "passwordNuevo2"
+  }'
+```
+
+### Request Body
+
+<ParamField body="actual" type="string" required>
+  The user's current password. Maximum 128 characters. Returns `400` if it does not match the stored credential.
+</ParamField>
+
+<ParamField body="nueva" type="string" required>
+  The desired new password. Maximum 128 characters. Must be at least **8 characters** long.
+</ParamField>
+
+<Note>
+  This endpoint is available to all authenticated users. It does **not** require the admin role. The session that made the request remains active; only other concurrent sessions are terminated.
+</Note>
+
+### Response
+
+```json
+{ "ok": true }
+```
+
+---
+
+## POST /preferencias/tema
+
+Saves the current user's UI theme preference. The preference is stored per-user and returned on subsequent `GET /yo` and `POST /login` calls.
+
+```bash
+curl -X POST http://localhost:8000/preferencias/tema \
+  --cookie "sesion=<token>" \
+  -H "Content-Type: application/json" \
+  -H "X-CSRF-Token: <csrf>" \
+  -d '{"tema": "oscuro"}'
+```
+
+### Request Body
+
+<ParamField body="tema" type="string" required>
+  Theme selection. Must be exactly one of:
+
+  | Value | Meaning |
+  |---|---|
+  | `claro` | Light theme |
+  | `oscuro` | Dark theme |
+  | `sistema` | Follow the OS/browser preference |
+
+  Returns `400` for any other value.
+</ParamField>
+
+<Note>
+  This endpoint is available to all authenticated users — no admin role required.
+</Note>
+
+### Response
+
+```json
+{ "ok": true }
+```

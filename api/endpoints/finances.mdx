@@ -1,0 +1,318 @@
+---
+title: "Finance Endpoints: Payments and Expense Tracking"
+sidebarTitle: "Finances"
+description: "REST API reference for entradas (client payments) and salidas (expenses) in Gestor Financiero. Add, update, and delete financial records per project."
+---
+
+Gestor Financiero tracks two types of financial records per project: **entradas** (client payments coming in) and **salidas** (expenses going out). Entradas record each payment received from the client and are capped at the project's contracted total. Salidas record every expenditure — materials, labor, additional costs — and can optionally be linked to a line item in the project's original presupuesto to power the budget-vs-actual comparison. Every endpoint that creates, updates, or deletes a record returns the full updated project object so your UI stays in sync without a separate fetch.
+
+---
+
+## POST /proyectos/\{proyecto_id\}/entradas
+
+Adds a new client payment record to the specified project. The total of all payments for the project can never exceed the project's contracted `total` — the API enforces this hard cap on every insert.
+
+### Path Parameters
+
+<ParamField path="proyecto_id" type="integer" required>
+  The numeric ID of the project to which this payment belongs.
+</ParamField>
+
+### Request Body
+
+<ParamField body="fecha" type="string" required>
+  Payment date in `YYYY-MM-DD` ISO format. Maximum 20 characters. Must be a valid calendar date.
+</ParamField>
+
+<ParamField body="monto" type="decimal" required>
+  Payment amount. Must be greater than `0`. The sum of all existing payments plus this amount must not exceed the project's `total`.
+</ParamField>
+
+<ParamField body="observacion" type="string">
+  Optional free-text note for this payment. Maximum 500 characters.
+</ParamField>
+
+### Response
+
+Returns the full project object with updated `total_entradas`, `saldo`, `ganancia`, `porcentaje`, and the new entry appended to `entradas`.
+
+<Warning>
+  Returns `400` if `monto` is zero or negative. Returns `400` if the payment would push total collected payments above the contracted project `total`; the error message includes the remaining available amount: _"El pago supera el monto contratado. Disponible: {restante}."_ Returns `404` if the project does not exist.
+</Warning>
+
+```bash
+curl -X POST http://localhost:8000/proyectos/42/entradas \
+  -H "Content-Type: application/json" \
+  -H "Cookie: session=<token>" \
+  -H "X-CSRF-Token: <csrf>" \
+  -d '{
+    "fecha": "2025-03-15",
+    "monto": 5000.00,
+    "observacion": "Primer abono acordado"
+  }'
+```
+
+Example response (abbreviated):
+
+```json
+{
+  "id": 42,
+  "nombre": "Remodelación Oficina Central",
+  "total": 15000.00,
+  "total_entradas": 5000.00,
+  "total_salidas": 1200.00,
+  "saldo": 3800.00,
+  "ganancia": 3800.00,
+  "porcentaje": 33,
+  "estado": "proceso",
+  "entradas": [
+    {
+      "id": 7,
+      "fecha": "2025-03-15",
+      "monto": 5000.00,
+      "observacion": "Primer abono acordado"
+    }
+  ]
+}
+```
+
+---
+
+## PUT /entradas/\{entrada_id\}
+
+Updates an existing payment record. When re-validating the payment cap, the current record is excluded from the running total so that correcting an entry's amount does not double-count it.
+
+### Path Parameters
+
+<ParamField path="entrada_id" type="integer" required>
+  The numeric ID of the payment record to update.
+</ParamField>
+
+### Request Body
+
+<ParamField body="fecha" type="string" required>
+  Updated payment date in `YYYY-MM-DD` format. Maximum 20 characters.
+</ParamField>
+
+<ParamField body="monto" type="decimal" required>
+  Updated payment amount. Must be greater than `0`. The sum of all other payments plus this new amount must not exceed the project's `total`.
+</ParamField>
+
+<ParamField body="observacion" type="string">
+  Updated optional note. Maximum 500 characters.
+</ParamField>
+
+### Response
+
+Returns the full project object with recalculated financial totals.
+
+<Warning>
+  Returns `400` if the updated amount would exceed the contracted total (after excluding the current entry from the sum). Returns `404` if no payment with the given `entrada_id` exists.
+</Warning>
+
+```bash
+curl -X PUT http://localhost:8000/entradas/7 \
+  -H "Content-Type: application/json" \
+  -H "Cookie: session=<token>" \
+  -H "X-CSRF-Token: <csrf>" \
+  -d '{
+    "fecha": "2025-03-15",
+    "monto": 6000.00,
+    "observacion": "Primer abono corregido"
+  }'
+```
+
+---
+
+## DELETE /entradas/\{entrada_id\}
+
+Permanently removes a payment record. The project's financial totals are automatically recalculated on the next fetch.
+
+### Path Parameters
+
+<ParamField path="entrada_id" type="integer" required>
+  The numeric ID of the payment record to delete.
+</ParamField>
+
+### Response
+
+```json
+{ "ok": true }
+```
+
+---
+
+## POST /proyectos/\{proyecto_id\}/salidas
+
+Adds a new expense record to the specified project. Expenses are not capped — there is no upper limit on how much a project can spend. Optionally link the expense to a presupuesto line item via `partida_id` to enable the budget-vs-actual comparison.
+
+### Path Parameters
+
+<ParamField path="proyecto_id" type="integer" required>
+  The numeric ID of the project to which this expense belongs.
+</ParamField>
+
+### Request Body
+
+<ParamField body="fecha" type="string" required>
+  Expense date in `YYYY-MM-DD` ISO format. Maximum 20 characters. Must be a valid calendar date.
+</ParamField>
+
+<ParamField body="proveedor" type="string" required>
+  Supplier or provider name. Maximum 200 characters. Cannot be blank.
+</ParamField>
+
+<ParamField body="descripcion" type="string" required>
+  Description of what was purchased or the service rendered. Maximum 500 characters. Cannot be blank.
+</ParamField>
+
+<ParamField body="monto" type="decimal" required>
+  Expense amount. Must be greater than `0`.
+</ParamField>
+
+<ParamField body="observacion" type="string">
+  Optional free-text note. Maximum 500 characters.
+</ParamField>
+
+<ParamField body="categoria" type="string">
+  Expense category for budget grouping. Maximum 30 characters. One of: `materiales`, `mano_obra`, `gastos`. Leave `null` if the expense does not fit a tracked category.
+</ParamField>
+
+<ParamField body="partida_id" type="integer">
+  Optional ID of a presupuesto line item to link this expense against. Use the `items` array from `GET /proyectos/{proyecto_id}/comparacion` to find valid IDs for the project.
+</ParamField>
+
+### Response
+
+Returns the full project object with updated `total_salidas`, `saldo`, `ganancia`, and the new entry appended to `salidas`.
+
+<Warning>
+  Returns `400` if `proveedor` or `descripcion` are blank, if `monto` is zero or negative, or if `fecha` is not a valid date. Returns `404` if the project does not exist.
+</Warning>
+
+<Note>
+  For the budget-vs-actual comparison (available at `GET /proyectos/{proyecto_id}/comparacion`) to accurately reflect spending per line item, link each salida to its corresponding presupuesto item by supplying `partida_id`. Expenses without a `partida_id` are still counted in the overall cost totals but will appear under `sin_categoria` in the deviation report.
+</Note>
+
+```bash
+curl -X POST http://localhost:8000/proyectos/42/salidas \
+  -H "Content-Type: application/json" \
+  -H "Cookie: session=<token>" \
+  -H "X-CSRF-Token: <csrf>" \
+  -d '{
+    "fecha": "2025-03-10",
+    "proveedor": "Maderas del Norte",
+    "descripcion": "Tablones de pino para muebles de recepción",
+    "monto": 850.00,
+    "observacion": "Factura #2341",
+    "categoria": "materiales",
+    "partida_id": 5
+  }'
+```
+
+Example response (abbreviated):
+
+```json
+{
+  "id": 42,
+  "nombre": "Remodelación Oficina Central",
+  "total": 15000.00,
+  "total_entradas": 5000.00,
+  "total_salidas": 850.00,
+  "saldo": 4150.00,
+  "ganancia": 4150.00,
+  "porcentaje": 33,
+  "estado": "proceso",
+  "salidas": [
+    {
+      "id": 12,
+      "fecha": "2025-03-10",
+      "proveedor": "Maderas del Norte",
+      "descripcion": "Tablones de pino para muebles de recepción",
+      "monto": 850.00,
+      "observacion": "Factura #2341",
+      "categoria": "materiales",
+      "partida_id": 5
+    }
+  ]
+}
+```
+
+---
+
+## PUT /salidas/\{salida_id\}
+
+Updates an existing expense record. The `partida_id` link to a presupuesto item is **not** updated by this endpoint — to change the linked item, delete the record and re-create it with the correct `partida_id`.
+
+### Path Parameters
+
+<ParamField path="salida_id" type="integer" required>
+  The numeric ID of the expense record to update.
+</ParamField>
+
+### Request Body
+
+<ParamField body="fecha" type="string" required>
+  Updated expense date in `YYYY-MM-DD` format. Maximum 20 characters.
+</ParamField>
+
+<ParamField body="proveedor" type="string" required>
+  Updated supplier name. Maximum 200 characters. Cannot be blank.
+</ParamField>
+
+<ParamField body="descripcion" type="string" required>
+  Updated description. Maximum 500 characters. Cannot be blank.
+</ParamField>
+
+<ParamField body="monto" type="decimal" required>
+  Updated expense amount. Must be greater than `0`.
+</ParamField>
+
+<ParamField body="observacion" type="string">
+  Updated optional note. Maximum 500 characters.
+</ParamField>
+
+<ParamField body="categoria" type="string">
+  Updated expense category. One of: `materiales`, `mano_obra`, `gastos`. Maximum 30 characters.
+</ParamField>
+
+### Response
+
+Returns the full project object with recalculated financial totals.
+
+<Warning>
+  Returns `400` if any required field fails validation. Returns `404` if no expense with the given `salida_id` exists. Note: `partida_id` supplied in the body is silently ignored — it is not updated.
+</Warning>
+
+```bash
+curl -X PUT http://localhost:8000/salidas/12 \
+  -H "Content-Type: application/json" \
+  -H "Cookie: session=<token>" \
+  -H "X-CSRF-Token: <csrf>" \
+  -d '{
+    "fecha": "2025-03-10",
+    "proveedor": "Maderas del Norte",
+    "descripcion": "Tablones de pino — cantidad corregida",
+    "monto": 920.00,
+    "observacion": "Factura #2341 ajustada",
+    "categoria": "materiales"
+  }'
+```
+
+---
+
+## DELETE /salidas/\{salida_id\}
+
+Permanently removes an expense record. The project's financial totals are automatically recalculated on the next fetch.
+
+### Path Parameters
+
+<ParamField path="salida_id" type="integer" required>
+  The numeric ID of the expense record to delete.
+</ParamField>
+
+### Response
+
+```json
+{ "ok": true }
+```

@@ -1,0 +1,132 @@
+---
+title: "Analyzing Financial Performance Across Projects"
+sidebarTitle: "Analysis"
+description: "Use the analysis module to review profitability indicators, identify your most and least profitable projects, and filter results by year, month, or quarter."
+---
+
+The **Análisis financiero** module gives you a bird's-eye view of your business performance over time. Rather than looking at one project at a time, it aggregates all closed projects within a period you choose and surfaces the indicators that matter most: total revenue, total costs, overall profit, and which projects drove the best and worst results. Cancelled projects are reported separately so you can assess their financial impact without mixing them into your completion metrics.
+
+## Accessing the Analysis
+
+The analysis endpoint accepts three optional filter parameters:
+
+```
+GET /analisis?anio={year}&mes={month}&trimestre={quarter}
+```
+
+| Parameter | Format | Example | Description |
+|---|---|---|---|
+| `anio` | 4-digit year or `"todos"` | `2024` | Filter by the year in which the project was closed (`fecha_fin`) |
+| `mes` | `01`–`12` or `"todos"` | `03` | Filter by the month of closing (only meaningful alongside `anio`) |
+| `trimestre` | `1`–`4` or `"todos"` | `2` | Filter by calendar quarter of closing |
+
+The frontend exposes three display modes — **Mensual**, **Trimestral**, and **Anual** — that control which filter selectors are shown. Switching modes resets the secondary filter.
+
+<Note>
+  Only projects with a `fecha_fin` recorded and a state of either `finalizado` or `cancelado` are included in the analysis. Projects that are still in progress (`iniciando`, `proceso`, `acabando`, or `pausa`) are completely excluded, regardless of the selected period.
+</Note>
+
+## Quarterly Groupings
+
+When filtering by trimestre, the backend maps quarter numbers to the following months:
+
+| Quarter | Months |
+|---|---|
+| Q1 — 1.º trimestre | January, February, March (`01–03`) |
+| Q2 — 2.º trimestre | April, May, June (`04–06`) |
+| Q3 — 3.º trimestre | July, August, September (`07–09`) |
+| Q4 — 4.º trimestre | October, November, December (`10–12`) |
+
+## Indicators for Finalised Projects
+
+For all finalised projects that match the selected period, `logica.analizar()` returns the following indicators:
+
+```python
+# logica.py
+def analizar(proyectos_finalizados):
+    ingresos_totales = sum(p["total_entradas"] for p in proyectos_finalizados)
+    gastos_totales   = sum(p["total_salidas"]  for p in proyectos_finalizados)
+    ganancia_total   = sum(p["ganancia"]        for p in proyectos_finalizados)
+
+    ordenados_ganancia = sorted(proyectos_finalizados, key=lambda p: p["ganancia"], reverse=True)
+    mas_rentable   = ordenados_ganancia[0]
+    menos_rentable = ordenados_ganancia[-1]
+    con_perdida    = [p for p in proyectos_finalizados if p["ganancia"] < 0]
+
+    con_duracion = [p for p in proyectos_finalizados if p.get("duracion") is not None]
+    mas_rapido   = min(con_duracion, key=lambda p: p["duracion"]) if con_duracion else None
+    ...
+```
+
+| Indicator | Description |
+|---|---|
+| `ingresos_totales` | Sum of `total_entradas` across all finalised projects in the period |
+| `gastos_totales` | Sum of `total_salidas` across all finalised projects in the period |
+| `ganancia_total` | Sum of `ganancia` (entradas − salidas) across all finalised projects |
+| `cantidad` | Count of finalised projects in the period |
+| `mas_rentable` | The project with the highest `ganancia` value |
+| `menos_rentable` | The project with the lowest `ganancia` value (may be the same project if only one exists) |
+| `proyectos_perdida` | List of all projects where `ganancia < 0` |
+| `mas_rapido` | The project with the shortest `duracion` in days (projects without a recorded duration are excluded) |
+
+The **Resumen automático** section in the UI turns these indicators into readable sentences — for example: *"El proyecto con mayor ganancia fue 'Casa Los Robles' con S/ 12 000"*.
+
+## Indicators for Cancelled Projects
+
+Cancelled projects are aggregated separately by `logica.analizar_cancelados()`:
+
+```python
+# logica.py
+def analizar_cancelados(proyectos_cancelados):
+    total_cobrado = sum(p["total_entradas"] for p in proyectos_cancelados)
+    total_gastado = sum(p["total_salidas"]  for p in proyectos_cancelados)
+    return {
+        "cantidad":       len(proyectos_cancelados),
+        "total_cobrado":  total_cobrado,
+        "total_gastado":  total_gastado,
+        "neto":           total_cobrado - total_gastado,
+    }
+```
+
+| Indicator | Description |
+|---|---|
+| `cantidad` | Number of cancelled projects in the period |
+| `total_cobrado` | Total payments already received before cancellation |
+| `total_gastado` | Total expenses already incurred before cancellation |
+| `neto` | `total_cobrado − total_gastado` — positive means you recovered more than you spent; negative means a net loss on cancelled work |
+
+The `neto` figure is displayed in green when positive and red when negative on the Análisis page.
+
+## Profitability Chart and Tables
+
+Beyond the aggregate indicators, the Análisis page displays:
+
+<CardGroup cols={2}>
+  <Card title="Ganancia por proyecto" icon="chart-bar">
+    A horizontal bar chart showing each finalised project's `ganancia`. Bars are green for positive results and red for losses. Click any bar to filter the tables below to only that project (multi-select is supported).
+  </Card>
+  <Card title="Rentabilidad por proyecto" icon="table">
+    A sortable table of all finalised projects showing `total_entradas`, `total_salidas`, and `ganancia`. Clicking any column header toggles ascending/descending order.
+  </Card>
+  <Card title="Rendimiento por tiempo" icon="clock">
+    A table listing finalised projects ordered by `duracion` in days, showing start date, close date, and total duration. Useful for identifying which jobs run longest and comparing them against profitability.
+  </Card>
+  <Card title="Proyectos cancelados" icon="ban">
+    A list of cancelled projects in the period ordered by their individual net balance (entradas − salidas), showing which cancellations were most costly.
+  </Card>
+</CardGroup>
+
+## API Response Structure
+
+A single call to `GET /analisis` returns both segments in one response:
+
+```json
+{
+  "proyectos":              [...],  // full data for each finalised project
+  "indicadores":            {...},  // logica.analizar() result, or null if none
+  "cancelados":             [...],  // full data for each cancelled project
+  "indicadores_cancelados": {...}   // logica.analizar_cancelados() result, or null if none
+}
+```
+
+Both `indicadores` and `indicadores_cancelados` are `null` when there are no projects of that type in the selected period. The UI shows *"No hay proyectos cerrados en este período."* when both are null.

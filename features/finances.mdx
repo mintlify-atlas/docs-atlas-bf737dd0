@@ -1,0 +1,110 @@
+---
+title: "Tracking Client Payments and Project Expenses"
+sidebarTitle: "Finances"
+description: "Record and manage client payments (entradas) and supplier expenses (salidas) for each project. Understand validation rules and category tracking."
+---
+
+Every project in Gestor Financiero has two financial streams flowing through it. **Entradas** capture money coming in from the client — each payment received is logged so you always know exactly how much has been collected and how much is still outstanding. **Salidas** capture money going out to suppliers and workers — every expense is recorded against the project so your real cost is always visible. Together, these two streams power the live financial indicators shown on every project detail page.
+
+## Entradas — Client Payments
+
+An entrada records a single payment received from the client. The fields are:
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `fecha` | date (`YYYY-MM-DD`) | Yes | Date the payment was received |
+| `monto` | decimal | Yes | Amount received; must be greater than 0 |
+| `observacion` | string (max 500 chars) | No | Optional note (e.g. payment method, instalment reference) |
+
+### Collection Cap
+
+The total of all entradas for a project can never exceed the project's contracted `total`. Every time you add or edit a payment the backend runs this check:
+
+```python
+# logica.py – validar_entrada
+nuevo_total = total_entradas(entradas) + monto
+if nuevo_total > proyecto["total"]:
+    restante = proyecto["total"] - total_entradas(entradas)
+    return (False, f"El pago supera el monto contratado. Disponible: {restante:,.0f}.")
+```
+
+The API returns HTTP 400 with the remaining available amount if the limit would be exceeded.
+
+### Collection Percentage
+
+The percentage of the contracted total that has been collected is computed as:
+
+```python
+# logica.py
+def porcentaje_cobrado_monto(total, cobrado):
+    if total <= 0:
+        return 0
+    return min(100, round(cobrado / total * 100))
+```
+
+Once this value reaches 100 the **Finalizar proyecto** button becomes active.
+
+## Salidas — Project Expenses
+
+A salida records a single outgoing expense. The fields are:
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `fecha` | date (`YYYY-MM-DD`) | Yes | Date the expense was incurred |
+| `proveedor` | string (max 200 chars) | Yes | Supplier or service provider name |
+| `descripcion` | string (max 500 chars) | Yes | Description of what was purchased or paid for |
+| `monto` | decimal | Yes | Amount paid; must be greater than 0 |
+| `observacion` | string (max 500 chars) | No | Optional additional note |
+| `categoria` | string | No | Expense category — `materiales`, `mano_obra`, or `gastos` |
+| `partida_id` | integer | No | Optional link to a budget line item (presupuesto item) |
+
+### Expense Categories and Subcategories
+
+Categorising an expense lets the system compare real spending against budget estimates. Three top-level categories are available, each with a predefined list of subconcepts:
+
+<CardGroup cols={3}>
+  <Card title="Materiales" icon="boxes-stacked">
+    Madera, Melamina, Herrajes, Pinturas, Cerámica, Vidrio, Metal, Otros materiales
+  </Card>
+  <Card title="Mano de obra" icon="person-digging">
+    Carpintería, Soldadura, Pintura, Albañilería, Electricidad, Plomería, Otros servicios
+  </Card>
+  <Card title="Gastos adicionales" icon="receipt">
+    Transporte, Combustible, Hospedaje, Alquiler de herramientas, Permisos, Imprevistos, Otros gastos
+  </Card>
+</CardGroup>
+
+Leaving `categoria` empty (`null`) is allowed. Uncategorised expenses are counted in the overall cost totals but are excluded from per-category budget comparisons and are reported separately as `sin_categoria` in the comparison view.
+
+### Linking an Expense to a Budget Item
+
+When a project was created from a presupuesto (budget), the expense form shows a **"Cargar partida del presupuesto"** selector. Choosing a budget line item pre-fills the description and amount from that item and stores its `id` in `partida_id`. This creates a direct link between what was estimated and what was actually spent, feeding the budget-vs-actual comparison view (see [Budgets](/features/budgets)).
+
+## Financial Calculations
+
+The following indicators are computed live from the raw entrada and salida records:
+
+```python
+# logica.py
+
+def saldo_actual(entradas, salidas):
+    return total_entradas(entradas) - total_salidas(salidas)
+
+def ganancia_final(proyecto, entradas, salidas):
+    return total_entradas(entradas) - total_salidas(salidas)
+
+def porcentaje_cobrado(proyecto, entradas):
+    return porcentaje_cobrado_monto(proyecto["total"], total_entradas(entradas))
+```
+
+| Indicator | Formula | Meaning |
+|---|---|---|
+| `saldo` | `total_entradas − total_salidas` | Current cash position of the project |
+| `ganancia` | `total_entradas − total_salidas` | Final profit or loss (equivalent to saldo) |
+| `porcentaje` | `min(100, round(total_entradas / total × 100))` | How much of the contracted amount has been collected |
+
+The project detail page displays `saldo` prominently so you always see whether cash in covers cash out. A negative saldo is shown in red.
+
+<Note>
+  All financial validation — the collection cap, positive-amount checks, and date format checks — runs server-side in `logica.py` before any data is written to the database. Frontend validation provides immediate feedback, but the backend is the authoritative source of truth and will reject invalid requests even if the frontend check is bypassed.
+</Note>

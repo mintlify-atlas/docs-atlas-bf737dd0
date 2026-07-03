@@ -1,0 +1,132 @@
+---
+title: "Security Architecture of Gestor Financiero"
+sidebarTitle: "Security"
+description: "Understand the security layers in Gestor Financiero: Argon2id hashing, session cookies, CSRF protection, brute-force lockout, rate limiting, and HTTP security headers."
+---
+
+Gestor Financiero follows a defense-in-depth approach aligned with OWASP recommendations. Rather than relying on any single safeguard, multiple independent layers work together: strong password hashing, session integrity via HttpOnly cookies, CSRF double-cookie protection, brute-force lockouts, per-IP rate limiting, request size caps, and a hardened set of HTTP security headers on every response. All critical validations are enforced on the backend regardless of what the frontend sends.
+
+<Tip>
+After first boot, change the principal admin's password immediately. If `ADMIN_PASSWORD` was left empty in `.env`, the system printed a randomly generated password to the console **once** — that output is the only place it appears. Log in and update it before anyone else accesses the system.
+</Tip>
+
+## Password Hashing
+
+All passwords are hashed with **Argon2id** using the `pwdlib` library, which wraps the algorithm recommended by OWASP for new applications. Verification is timing-safe by default.
+
+To prevent username enumeration through timing attacks, the login endpoint runs a dummy Argon2id verification against a pre-computed hash whenever the requested username does not exist. This makes a failed lookup take the same wall-clock time as a real password comparison — an attacker cannot distinguish "user not found" from "wrong password" by measuring response time.
+
+```python
+# auth.py — dummy hash prevents timing-based enumeration
+_HASH_SENUELO = _hasher.hash("contrasena_que_nunca_coincide")
+
+def verificar_password_dummy() -> None:
+    try:
+        _hasher.verify("contrasena_incorrecta", _HASH_SENUELO)
+    except Exception:
+        pass
+```
+
+## Sessions
+
+After a successful login, the server generates a cryptographically random token via `secrets.token_urlsafe(32)`. The token is **hashed with SHA-256** before being written to the `sesiones` table, so a database leak does not expose raw session tokens.
+
+Sessions are delivered to the browser as two cookies:
+
+| Cookie | `HttpOnly` | Purpose |
+|---|---|---|
+| `sesion` | ✅ Yes | Carries the session token — not accessible from JavaScript |
+| `csrftoken` | ❌ No | Readable by JavaScript for use in the `X-CSRF-Token` header |
+
+Both cookies are set with `SameSite=Strict` and, in production, with the `Secure` flag so they are only transmitted over HTTPS. Sessions expire after **8 hours**.
+
+## CSRF Protection
+
+Gestor Financiero uses the **double-cookie pattern**. On every state-changing request (`POST`, `PUT`, `DELETE`), the server checks that:
+
+1. The `csrftoken` cookie is present.
+2. The `X-CSRF-Token` request header is present.
+3. Both values match exactly — compared with `secrets.compare_digest` to prevent timing attacks.
+
+`GET`, `HEAD`, and `OPTIONS` requests are exempt. If the check fails, the API returns HTTP 403 with the message `"Token CSRF inválido o ausente."`.
+
+The frontend reads the `csrftoken` cookie (which is intentionally not HttpOnly) and attaches its value to the `X-CSRF-Token` header on every mutating request.
+
+## Brute-Force Lockout
+
+To limit credential-stuffing and brute-force attacks, the login endpoint tracks failed attempts **per username**:
+
+| Constant | Value | Meaning |
+|---|---|---|
+| `MAX_INTENTOS` | `5` | Failed attempts before lockout |
+| `BLOQUEO_MINUTOS` | `15` | Lockout duration in minutes |
+
+After 5 consecutive failures for a given username, the account is locked for 15 minutes and the attempt counter resets. A successful login also clears the counter. Lockout state is stored in the `intentos_login` table. Locked accounts receive HTTP 429 with a descriptive message.
+
+## Rate Limiting
+
+The `slowapi` library enforces per-IP rate limits using middleware applied to every route:
+
+| Limit | Endpoint | Env variable |
+|---|---|---|
+| 120 requests/minute | All routes | `RATE_LIMIT_GENERAL` |
+| 10 requests/minute | `/login` only | `RATE_LIMIT_LOGIN` |
+
+When a limit is exceeded, the API returns **HTTP 429** with:
+
+```json
+{
+  "detail": "Demasiadas peticiones. Espera un momento e inténtalo de nuevo."
+}
+```
+
+Both limits are configurable via environment variables — the defaults shown above apply when the variables are not set.
+
+## Request Body Size Limit
+
+A middleware layer checks the `Content-Length` header before passing any request to a route handler. Requests larger than **1 MB** (1,048,576 bytes) are rejected immediately with **HTTP 413** and the message `"La petición es demasiado grande."`. The threshold is configurable via the `MAX_BODY_BYTES` environment variable.
+
+```python
+# api.py — body size guard
+MAX_BODY_BYTES = int(os.environ.get("MAX_BODY_BYTES", str(1024 * 1024)))
+```
+
+## HTTP Security Headers
+
+Every response — regardless of route or status code — includes the following headers:
+
+| Header | Value | Purpose |
+|---|---|---|
+| `X-Content-Type-Options` | `nosniff` | Prevents MIME-type sniffing; stops browsers from executing a text file as a script |
+| `X-Frame-Options` | `DENY` | Prevents this API from being embedded in an `<iframe>` — anti-clickjacking |
+| `Referrer-Policy` | `no-referrer` | No URL leakage to third parties via the Referer header |
+| `Permissions-Policy` | `camera=(), microphone=(), geolocation=()` | Disables hardware APIs the application does not use |
+| `Cross-Origin-Opener-Policy` | `same-origin` | Isolates the browser browsing context from cross-origin windows |
+| `Cross-Origin-Resource-Policy` | `same-origin` | Blocks cross-origin reads of API responses |
+| `Server` | `servidor` | Hides the real server identity and version string |
+
+### Production-Only Headers
+
+When `ENTORNO=produccion`, two additional headers are added:
+
+| Header | Value |
+|---|---|
+| `Strict-Transport-Security` | `max-age=31536000; includeSubDomains; preload` |
+| `Content-Security-Policy` | `default-src 'none'; frame-ancestors 'none'; base-uri 'none'` |
+
+HSTS tells browsers to **always** use HTTPS for this domain for one year — even if the user types `http://`. The strict CSP blocks all embedded resources, reinforcing the anti-clickjacking protection and appropriate for a pure JSON/PDF API.
+
+## Trusted Host Enforcement
+
+In production, if the `HOSTS_PERMITIDOS` environment variable is set, FastAPI's `TrustedHostMiddleware` rejects any request whose `Host` header does not match the configured domain(s). This prevents host-header injection attacks and stops direct-IP access to the backend:
+
+```bash
+# .env — comma-separated list of allowed hostnames
+HOSTS_PERMITIDOS=yourdomain.com,www.yourdomain.com
+```
+
+Requests with a non-matching `Host` header receive HTTP 400 before reaching any route handler.
+
+## Minimum Password Length
+
+The `MIN_PASSWORD` constant in `auth.py` is set to **8 characters**. This minimum is enforced in three places: creating a new user (`POST /usuarios`), editing a user with a new password (`PUT /usuarios/{id}`), resetting a password (`POST /usuarios/{id}/password`), and changing one's own password (`POST /cambiar-password`).

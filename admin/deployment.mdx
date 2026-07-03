@@ -1,0 +1,171 @@
+---
+title: "Deploying Gestor Financiero to Production"
+sidebarTitle: "Deployment"
+description: "Deploy Gestor Financiero with PostgreSQL and a production environment. Configure HTTPS, set allowed hosts, and build the React frontend."
+---
+
+Gestor Financiero ships with two operating modes controlled by the `ENTORNO` environment variable. In **development** mode (`ENTORNO=desarrollo`, the default), the app uses a local SQLite file, the interactive API docs at `/docs`, `/redoc`, and `/openapi.json` are publicly accessible, and HSTS is disabled. In **production** mode (`ENTORNO=produccion`), the app connects to PostgreSQL, the API docs endpoints return 404, HSTS and a strict Content-Security-Policy are added to every response, and the `Secure` flag is applied to session cookies so they only travel over HTTPS.
+
+<Warning>
+When `ENTORNO=produccion` is set, the endpoints `/docs`, `/redoc`, and `/openapi.json` are **automatically disabled** at startup — they return 404. This prevents accidental exposure of your API schema in a live environment. Use a development instance if you need the interactive docs.
+</Warning>
+
+## Production Deployment
+
+<Steps>
+
+### Set up PostgreSQL
+
+Create a PostgreSQL database and a dedicated user for the application. Collect the connection string in the format:
+
+```
+postgresql://usuario:clave@servidor:5432/nombre_base
+```
+
+You can use a managed database service (e.g. Supabase, Railway, Render, AWS RDS) or a self-hosted PostgreSQL instance. The application only needs standard connection credentials — no extensions are required.
+
+### Configure the `.env` file
+
+Copy `.env.example` to `.env` in the project root and fill in all production-relevant variables:
+
+```bash
+# -----------------------------------------------
+# BACKEND
+# -----------------------------------------------
+
+# Activates production mode:
+#   - Hides /docs, /redoc, /openapi.json
+#   - Enables HSTS + strict CSP headers
+#   - Sets the Secure flag on session cookies
+ENTORNO=produccion
+
+# PostgreSQL connection string.
+# Leave empty to fall back to local SQLite (development only).
+DATABASE_URL=postgresql://usuario:clave@servidor:5432/nombre_base
+
+# Origins allowed to make cross-origin requests to this backend.
+# Must match the exact scheme + domain of your frontend.
+ORIGENES_PERMITIDOS=https://yourdomain.com
+
+# Reject requests whose Host header doesn't match this domain.
+# Prevents host-header injection and direct IP access.
+HOSTS_PERMITIDOS=yourdomain.com
+
+# Initial admin account (only used when the database is empty).
+# If ADMIN_PASSWORD is left blank, a random password is generated
+# and printed ONCE to the console at startup.
+ADMIN_USUARIO=admin
+ADMIN_NOMBRE=Administrador
+ADMIN_PASSWORD=ChangeMe_Immediately!
+
+# -----------------------------------------------
+# FRONTEND
+# -----------------------------------------------
+
+# Full URL of the backend API, as reachable from the browser.
+VITE_API_URL=https://yourdomain.com
+```
+
+### Install backend dependencies and start the server
+
+Navigate to the `backend/` directory, create a virtual environment, install dependencies, and start Uvicorn:
+
+```bash
+cd backend
+python -m venv venv
+source venv/bin/activate        # Windows: venv\Scripts\activate
+pip install -r requirements.txt
+
+# Start the application server
+# Bind to localhost so only your reverse proxy can reach it
+uvicorn src.api:app --host 127.0.0.1 --port 8000
+```
+
+For production, run Uvicorn behind a reverse proxy such as **nginx** and manage the process with a tool like `systemd`, `supervisor`, or a container runtime. Do not expose Uvicorn directly to the internet.
+
+On first start, `database.inicializar()` automatically creates all tables and runs soft schema migrations. **No manual migration commands are needed.**
+
+### Build the React frontend
+
+Navigate to the `frontend/` directory and run the Vite production build:
+
+```bash
+cd frontend
+npm install
+npm run build
+```
+
+This produces a `dist/` folder containing the fully compiled, static frontend assets. The build reads `VITE_API_URL` from `.env` to embed the backend URL at compile time, so make sure `.env` is configured before running `npm run build`.
+
+### Serve the frontend and proxy API requests
+
+Point your web server at the `dist/` folder for static file serving and proxy all `/` API traffic to Uvicorn. See the nginx configuration below for a minimal working example.
+
+</Steps>
+
+## Database Initialization
+
+On every startup, the app calls `database.inicializar()`, which:
+
+1. Creates all tables if they do not yet exist (`CREATE TABLE IF NOT EXISTS`).
+2. Runs **soft migrations** — it checks for columns added in later versions and issues `ALTER TABLE … ADD COLUMN` only if the column is missing. Existing data is never touched.
+3. Creates the principal admin account if the `usuarios` table is empty.
+
+This means switching databases (e.g. from SQLite to PostgreSQL) is a matter of pointing `DATABASE_URL` at the new instance and restarting — the schema is applied automatically.
+
+<Note>
+For PostgreSQL, the application uses **`psycopg_pool`** with a connection pool configured as `min_size=1, max_size=10`. The pool is opened once at startup and reused across all requests. The SQLite path uses direct `sqlite3` connections (no pool) and is not suitable for concurrent production traffic.
+</Note>
+
+## Switching from SQLite to PostgreSQL
+
+The `bd.py` module detects the database engine from the `DATABASE_URL` prefix:
+
+```python
+# bd.py
+URL = os.environ.get("DATABASE_URL", "").strip()
+ES_POSTGRES = URL.startswith("postgres://") or URL.startswith("postgresql://")
+```
+
+To migrate from SQLite to PostgreSQL, set `DATABASE_URL` to your PostgreSQL connection string and restart the backend. The schema is created automatically on first start against the new database.
+
+## Nginx Configuration
+
+The following is a minimal nginx configuration for serving the compiled frontend and proxying API requests to Uvicorn:
+
+```nginx
+server {
+    listen 80;
+    server_name yourdomain.com;
+    # Redirect all HTTP to HTTPS
+    return 301 https://$host$request_uri;
+}
+
+server {
+    listen 443 ssl;
+    server_name yourdomain.com;
+
+    ssl_certificate     /etc/ssl/certs/yourdomain.com.crt;
+    ssl_certificate_key /etc/ssl/private/yourdomain.com.key;
+
+    # Serve the compiled React frontend
+    root /var/www/gestor/frontend/dist;
+    index index.html;
+
+    # For client-side routing: fall back to index.html on unknown paths
+    location / {
+        try_files $uri $uri/ /index.html;
+    }
+
+    # Proxy all API requests to Uvicorn
+    location /api/ {
+        proxy_pass         http://127.0.0.1:8000/;
+        proxy_set_header   Host              $host;
+        proxy_set_header   X-Real-IP         $remote_addr;
+        proxy_set_header   X-Forwarded-For   $proxy_add_x_forwarded_for;
+        proxy_set_header   X-Forwarded-Proto $scheme;
+    }
+}
+```
+
+Adjust the `root` path to wherever you deployed the `dist/` folder, and update `ssl_certificate` paths to match your TLS certificate setup (e.g. from Let's Encrypt via Certbot).

@@ -1,0 +1,487 @@
+---
+title: "Project Endpoints: Create, Update, and Manage Projects"
+sidebarTitle: "Projects"
+description: "REST API reference for Gestor Financiero project endpoints. Create and edit projects, manage lifecycle states, pause/resume, and download closure PDFs."
+---
+
+The project endpoints are the backbone of Gestor Financiero. They let you create and edit financial projects, advance them through their lifecycle (from _iniciando_ to _finalizado_), pause and resume work, cancel when needed, and generate a closure PDF summary once a project is complete. Every mutating response returns the full project object — including all computed financial fields — so your UI always has a consistent, up-to-date snapshot after each action.
+
+---
+
+## GET /proyectos
+
+Returns a list of all projects, each enriched with computed financial totals and state display metadata. This lightweight variant omits the individual `entradas` and `salidas` arrays for performance; use `GET /proyectos/{proyecto_id}` to retrieve the full detail.
+
+### Response
+
+<ResponseField name="id" type="integer">
+  Unique identifier of the project.
+</ResponseField>
+
+<ResponseField name="nombre" type="string">
+  Project name (up to 200 characters).
+</ResponseField>
+
+<ResponseField name="cliente" type="string">
+  Client name associated with the project (up to 200 characters).
+</ResponseField>
+
+<ResponseField name="tipo" type="string">
+  Project type. One of: `Construcción`, `Remodelación`, `Muebles`, `Mantenimiento`, `Otro`.
+</ResponseField>
+
+<ResponseField name="total" type="decimal">
+  Contracted total amount for the project.
+</ResponseField>
+
+<ResponseField name="fecha_inicio" type="string">
+  Project start date in `YYYY-MM-DD` format.
+</ResponseField>
+
+<ResponseField name="estado" type="string">
+  Current lifecycle state. One of: `iniciando`, `proceso`, `acabando`, `pausa`, `finalizado`, `cancelado`.
+</ResponseField>
+
+<ResponseField name="estado_previo" type="string | null">
+  The active state the project was in before being paused. `null` when not paused.
+</ResponseField>
+
+<ResponseField name="fecha_fin" type="string | null">
+  Closing date (`YYYY-MM-DD`) set when the project is finalized or cancelled. `null` while still active.
+</ResponseField>
+
+<ResponseField name="creado" type="string">
+  ISO timestamp of when the project record was created.
+</ResponseField>
+
+<ResponseField name="total_entradas" type="decimal">
+  Sum of all client payments received so far.
+</ResponseField>
+
+<ResponseField name="total_salidas" type="decimal">
+  Sum of all expenses registered so far.
+</ResponseField>
+
+<ResponseField name="saldo" type="decimal">
+  Current balance: `total_entradas − total_salidas`.
+</ResponseField>
+
+<ResponseField name="ganancia" type="decimal">
+  Net profit computed as `total_entradas − total_salidas`.
+</ResponseField>
+
+<ResponseField name="porcentaje" type="integer">
+  Percentage of the contracted total that has been collected (0–100).
+</ResponseField>
+
+<ResponseField name="duracion" type="integer | null">
+  Total elapsed days between `fecha_inicio` and `fecha_fin` (or today if still active). `null` if dates are invalid.
+</ResponseField>
+
+<ResponseField name="estado_texto" type="string">
+  Human-readable label for the current state (e.g., `"En proceso"`, `"Finalizado"`).
+</ResponseField>
+
+<ResponseField name="estado_color" type="string">
+  UI color hint for the current state (e.g., `"azul"`, `"verde"`, `"rojo"`).
+</ResponseField>
+
+```bash
+curl -X GET http://localhost:8000/proyectos \
+  -H "Cookie: session=<token>"
+```
+
+---
+
+## GET /proyectos/\{proyecto_id\}
+
+Returns the full detail of a single project, including all associated payment records, expense records, and computed financial fields.
+
+### Path Parameters
+
+<ParamField path="proyecto_id" type="integer" required>
+  The numeric ID of the project to retrieve.
+</ParamField>
+
+### Response
+
+Returns the same fields as `GET /proyectos`, plus:
+
+<ResponseField name="entradas" type="array">
+  List of all client payment records for this project.
+
+  <Expandable title="Entrada fields">
+    <ResponseField name="id" type="integer">Unique payment ID.</ResponseField>
+    <ResponseField name="fecha" type="string">Payment date (`YYYY-MM-DD`).</ResponseField>
+    <ResponseField name="monto" type="decimal">Payment amount.</ResponseField>
+    <ResponseField name="observacion" type="string | null">Optional note attached to the payment.</ResponseField>
+  </Expandable>
+</ResponseField>
+
+<ResponseField name="salidas" type="array">
+  List of all expense records for this project.
+
+  <Expandable title="Salida fields">
+    <ResponseField name="id" type="integer">Unique expense ID.</ResponseField>
+    <ResponseField name="fecha" type="string">Expense date (`YYYY-MM-DD`).</ResponseField>
+    <ResponseField name="proveedor" type="string">Supplier or provider name.</ResponseField>
+    <ResponseField name="descripcion" type="string">Description of the expense.</ResponseField>
+    <ResponseField name="monto" type="decimal">Expense amount.</ResponseField>
+    <ResponseField name="observacion" type="string | null">Optional note.</ResponseField>
+    <ResponseField name="categoria" type="string | null">Expense category: `materiales`, `mano_obra`, or `gastos`.</ResponseField>
+    <ResponseField name="partida_id" type="integer | null">ID of the linked presupuesto item, if any.</ResponseField>
+  </Expandable>
+</ResponseField>
+
+<ResponseField name="dias_pausa" type="integer">
+  Total number of days the project has spent in the `pausa` state.
+</ResponseField>
+
+<ResponseField name="dias_efectivos" type="integer | null">
+  Effective working days: `duracion − dias_pausa`. `null` if `duracion` is unavailable.
+</ResponseField>
+
+<Warning>
+  Returns `404` if no project with the given `proyecto_id` exists.
+</Warning>
+
+```bash
+curl -X GET http://localhost:8000/proyectos/42 \
+  -H "Cookie: session=<token>"
+```
+
+---
+
+## POST /proyectos
+
+Creates a new project. The project is created in `iniciando` state with no financial records.
+
+### Request Body
+
+<ParamField body="nombre" type="string" required>
+  Project name. Maximum 200 characters. Cannot be blank.
+</ParamField>
+
+<ParamField body="cliente" type="string" required>
+  Client name. Maximum 200 characters. Cannot be blank.
+</ParamField>
+
+<ParamField body="tipo" type="string" required>
+  Project type. Maximum 60 characters. Must be one of: `Construcción`, `Remodelación`, `Muebles`, `Mantenimiento`, `Otro`.
+</ParamField>
+
+<ParamField body="total" type="decimal" required>
+  Contracted total amount. Must be greater than `0`.
+</ParamField>
+
+<ParamField body="fecha_inicio" type="string" required>
+  Project start date in `YYYY-MM-DD` ISO format. Maximum 20 characters.
+</ParamField>
+
+### Response
+
+Returns the full project object (same shape as `GET /proyectos/{proyecto_id}`).
+
+<Warning>
+  Returns `400` with a field-keyed error object if any validation rule fails (e.g., blank name, non-positive total, invalid date).
+</Warning>
+
+```bash
+curl -X POST http://localhost:8000/proyectos \
+  -H "Content-Type: application/json" \
+  -H "Cookie: session=<token>" \
+  -H "X-CSRF-Token: <csrf>" \
+  -d '{
+    "nombre": "Remodelación Oficina Central",
+    "cliente": "Empresa Ejemplo S.A.",
+    "tipo": "Remodelación",
+    "total": 15000.00,
+    "fecha_inicio": "2025-02-01"
+  }'
+```
+
+---
+
+## PUT /proyectos/\{proyecto_id\}
+
+Updates the metadata of an existing project. Accepts the same body as `POST /proyectos`. Financial records and lifecycle state are unaffected by this call.
+
+### Path Parameters
+
+<ParamField path="proyecto_id" type="integer" required>
+  The numeric ID of the project to update.
+</ParamField>
+
+### Request Body
+
+Same fields as `POST /proyectos`: `nombre`, `cliente`, `tipo`, `total`, `fecha_inicio`.
+
+### Response
+
+Returns the full updated project object.
+
+<Warning>
+  Returns `404` if the project does not exist. Returns `400` if validation fails.
+</Warning>
+
+```bash
+curl -X PUT http://localhost:8000/proyectos/42 \
+  -H "Content-Type: application/json" \
+  -H "Cookie: session=<token>" \
+  -H "X-CSRF-Token: <csrf>" \
+  -d '{
+    "nombre": "Remodelación Oficina Central — Fase 2",
+    "cliente": "Empresa Ejemplo S.A.",
+    "tipo": "Remodelación",
+    "total": 18500.00,
+    "fecha_inicio": "2025-02-01"
+  }'
+```
+
+---
+
+## POST /proyectos/\{proyecto_id\}/estado
+
+Manually advances or changes the active state of a project within the set of working states. Use this to move a project between `iniciando`, `proceso`, and `acabando` as work progresses.
+
+### Path Parameters
+
+<ParamField path="proyecto_id" type="integer" required>
+  The numeric ID of the project.
+</ParamField>
+
+### Request Body
+
+<ParamField body="estado" type="string" required>
+  The target active state. Must be one of: `iniciando`, `proceso`, `acabando`.
+</ParamField>
+
+### Response
+
+Returns the full project object with the updated `estado`.
+
+<Warning>
+  Returns `400` if the supplied state is not one of the three active states. To pause, cancel, or finalize a project use the dedicated endpoints below.
+</Warning>
+
+```bash
+curl -X POST http://localhost:8000/proyectos/42/estado \
+  -H "Content-Type: application/json" \
+  -H "Cookie: session=<token>" \
+  -H "X-CSRF-Token: <csrf>" \
+  -d '{"estado": "proceso"}'
+```
+
+---
+
+## POST /proyectos/\{proyecto_id\}/finalizar
+
+Marks a project as `finalizado` and records today as `fecha_fin`. This transition is only allowed when **100 % of the contracted total** has been collected via payment records.
+
+### Path Parameters
+
+<ParamField path="proyecto_id" type="integer" required>
+  The numeric ID of the project to finalize.
+</ParamField>
+
+### Response
+
+Returns the full project object with `estado` set to `finalizado` and `fecha_fin` populated.
+
+<Warning>
+  Returns `400` with the message _"Solo se puede finalizar cuando el proyecto está 100% cobrado."_ if the collected amount has not yet reached `total`. Returns `404` if the project does not exist.
+</Warning>
+
+---
+
+## POST /proyectos/\{proyecto_id\}/cancelar
+
+Cancels a project from any non-closed state (`iniciando`, `proceso`, `acabando`, or `pausa`). If the project is currently paused, the open pause period is automatically closed before the cancellation is applied. Records today as `fecha_fin`.
+
+### Path Parameters
+
+<ParamField path="proyecto_id" type="integer" required>
+  The numeric ID of the project to cancel.
+</ParamField>
+
+### Response
+
+Returns the full project object with `estado` set to `cancelado` and `fecha_fin` populated.
+
+<Warning>
+  Returns `400` if the project is already in a closed state (`finalizado` or `cancelado`). Returns `404` if the project does not exist.
+</Warning>
+
+---
+
+## POST /proyectos/\{proyecto_id\}/pausar
+
+Pauses a project that is currently in one of the three active states. Records a pause entry with today as the start date, and stores the current state in `estado_previo` so it can be restored on resume.
+
+### Path Parameters
+
+<ParamField path="proyecto_id" type="integer" required>
+  The numeric ID of the project to pause.
+</ParamField>
+
+### Response
+
+Returns the full project object with `estado` set to `pausa` and `estado_previo` holding the previous active state.
+
+<Warning>
+  Returns `400` if the project is not in an active state (`iniciando`, `proceso`, or `acabando`). A project that is already paused, finalized, or cancelled cannot be paused again.
+</Warning>
+
+```bash
+curl -X POST http://localhost:8000/proyectos/42/pausar \
+  -H "Cookie: session=<token>" \
+  -H "X-CSRF-Token: <csrf>"
+```
+
+---
+
+## POST /proyectos/\{proyecto_id\}/reanudar
+
+Resumes a paused project. Closes the open pause period (recording today as the end date) and restores the state stored in `estado_previo`. If `estado_previo` is missing for any reason, the project falls back to `proceso`.
+
+### Path Parameters
+
+<ParamField path="proyecto_id" type="integer" required>
+  The numeric ID of the project to resume.
+</ParamField>
+
+### Response
+
+Returns the full project object with `estado` restored to the previous active state and the pause period closed.
+
+<Warning>
+  Returns `400` if the project is not currently in `pausa` state. Returns `404` if the project does not exist.
+</Warning>
+
+```bash
+curl -X POST http://localhost:8000/proyectos/42/reanudar \
+  -H "Cookie: session=<token>" \
+  -H "X-CSRF-Token: <csrf>"
+```
+
+---
+
+## GET /proyectos/\{proyecto_id\}/pdf
+
+Generates and streams the project closure PDF, produced by ReportLab. The file includes project details, all payment records, all expense records, and a financial summary.
+
+### Path Parameters
+
+<ParamField path="proyecto_id" type="integer" required>
+  The numeric ID of the project for which to generate the PDF.
+</ParamField>
+
+### Response
+
+Returns a binary `application/pdf` response with the header:
+
+```
+Content-Disposition: attachment; filename="cierre_{nombre}.pdf"
+```
+
+The filename is the project name sanitized to ASCII characters (accents stripped, special characters replaced with underscores).
+
+<Note>
+  The PDF is generated on demand on every request — there is no cached file. For projects with many records, allow a short generation delay.
+</Note>
+
+<Warning>
+  Returns `404` if no project with the given `proyecto_id` exists.
+</Warning>
+
+```bash
+curl -X GET http://localhost:8000/proyectos/42/pdf \
+  -H "Cookie: session=<token>" \
+  --output cierre_proyecto.pdf
+```
+
+---
+
+## GET /proyectos/\{proyecto_id\}/comparacion
+
+Returns a budget-versus-actual cost comparison for a project. This endpoint is only meaningful for projects that originated from a presupuesto (budget) via the `/presupuestos/{id}/convertir` workflow. When no budget is linked, the response simply signals that with `tiene_presupuesto: false`.
+
+### Path Parameters
+
+<ParamField path="proyecto_id" type="integer" required>
+  The numeric ID of the project.
+</ParamField>
+
+### Response
+
+<ResponseField name="tiene_presupuesto" type="boolean">
+  `true` if this project has an associated presupuesto; `false` otherwise. When `false`, no other fields are returned.
+</ResponseField>
+
+<ResponseField name="presupuesto_id" type="integer">
+  ID of the linked presupuesto record.
+</ResponseField>
+
+<ResponseField name="items" type="array">
+  The individual line items (partidas) from the original presupuesto. Useful for populating the `partida_id` field when registering salidas.
+</ResponseField>
+
+<ResponseField name="resumen" type="object">
+  Budget summary with fields: `total_materiales`, `total_mano_obra`, `total_gastos`, `costo_total`, `utilidad_pct`, `precio_venta`, `utilidad_monto`, `margen_pct`.
+</ResponseField>
+
+<ResponseField name="comparacion" type="object">
+  Per-category deviation analysis. Each key (`materiales`, `mano_obra`, `gastos`, `costo_total`, `utilidad`) contains `estimado`, `real`, `desviacion`, and `desviacion_pct`. Also includes `sin_categoria` for expenses with no category.
+</ResponseField>
+
+<Warning>
+  Returns `404` if the project does not exist.
+</Warning>
+
+---
+
+## GET /catalogos
+
+Returns the static application catalogs used to populate dropdowns and validate inputs throughout the UI. Call this once on application load and cache the result client-side.
+
+### Response
+
+<ResponseField name="tipos" type="array of strings">
+  Valid project types: `["Construcción", "Remodelación", "Muebles", "Mantenimiento", "Otro"]`.
+</ResponseField>
+
+<ResponseField name="estados_activos" type="array of strings">
+  The three active (non-terminal) states: `["iniciando", "proceso", "acabando"]`.
+</ResponseField>
+
+<ResponseField name="categorias_presupuesto" type="object">
+  Map of category key → array of subcategory labels. Keys are `materiales`, `mano_obra`, `gastos`.
+</ResponseField>
+
+<ResponseField name="nombre_categoria" type="object">
+  Human-readable display name for each category key: `{"materiales": "Materiales", "mano_obra": "Mano de obra", "gastos": "Gastos adicionales"}`.
+</ResponseField>
+
+```bash
+curl -X GET http://localhost:8000/catalogos \
+  -H "Cookie: session=<token>"
+```
+
+Example response:
+
+```json
+{
+  "tipos": ["Construcción", "Remodelación", "Muebles", "Mantenimiento", "Otro"],
+  "estados_activos": ["iniciando", "proceso", "acabando"],
+  "categorias_presupuesto": {
+    "materiales": ["Madera", "Melamina", "Herrajes", "Pinturas", "Cerámica", "Vidrio", "Metal", "Otros materiales"],
+    "mano_obra": ["Carpintería", "Soldadura", "Pintura", "Albañilería", "Electricidad", "Plomería", "Otros servicios"],
+    "gastos": ["Transporte", "Combustible", "Hospedaje", "Alquiler de herramientas", "Permisos", "Imprevistos", "Otros gastos"]
+  },
+  "nombre_categoria": {
+    "materiales": "Materiales",
+    "mano_obra": "Mano de obra",
+    "gastos": "Gastos adicionales"
+  }
+}
+```

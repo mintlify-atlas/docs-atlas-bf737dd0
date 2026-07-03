@@ -1,0 +1,177 @@
+---
+title: "Configure Gestor Financiero with Environment Variables"
+sidebarTitle: "Configuration"
+description: "Full reference for every .env variable in Gestor Financiero. Configure your database, CORS origins, rate limits, and admin credentials."
+---
+
+All runtime configuration for Gestor Financiero lives in a single `.env` file at the project root. The `.env.example` file in the repository lists every available variable with comments explaining each one — copy it to `.env` and edit it before starting the servers. Variables prefixed with `VITE_` are read by the React frontend at build time via Vite; all other variables are read by the FastAPI backend at startup via `python-dotenv`. None of the variables are required to have a value for local development; the defaults are designed to work out of the box with SQLite.
+
+<Tip>
+  After your first login, change the admin password immediately via the account settings page. The initial password — whether you set it yourself or let it be auto-generated — should be treated as a temporary credential.
+</Tip>
+
+## Backend Variables
+
+<ParamField path="ENTORNO" type="string" default="desarrollo">
+  Controls the deployment mode. Accepted values are `desarrollo` and `produccion`.
+
+  - **`desarrollo`** — The interactive API docs (`/docs`, `/redoc`, `/openapi.json`) are publicly accessible. HSTS and strict CSP headers are not sent. Session cookies do not require HTTPS.
+  - **`produccion`** — API docs are hidden. `Strict-Transport-Security` (HSTS, 1 year, includeSubDomains, preload) and a strict `Content-Security-Policy` are added to every response. Session cookies are marked `Secure` (HTTPS-only).
+</ParamField>
+
+<ParamField path="DATABASE_URL" type="string" default="">
+  PostgreSQL connection string. When this variable is empty or not set, the application automatically uses a local SQLite file at `backend/data/proyectos.db`.
+
+  ```bash
+  # PostgreSQL (production)
+  DATABASE_URL=postgresql://usuario:clave@servidor:5432/nombre_de_tu_base
+  ```
+
+  The backend detects the engine at startup and prints which database it is using:
+
+  ```
+  [BD] Usando PostgreSQL -> servidor:5432/nombre_de_tu_base
+  # or
+  [BD] Usando SQLite (archivo local data/proyectos.db)
+  ```
+
+  With PostgreSQL, a connection pool of 1–10 connections is opened automatically. With SQLite, each request opens and closes its own connection.
+</ParamField>
+
+<ParamField path="ORIGENES_PERMITIDOS" type="string" default="http://localhost:5173,http://127.0.0.1:5173">
+  Comma-separated list of origins that the browser is allowed to make cross-origin requests from. This value is passed directly to FastAPI's `CORSMiddleware`.
+
+  ```bash
+  # Development (default)
+  ORIGENES_PERMITIDOS=http://localhost:5173,http://127.0.0.1:5173
+
+  # Production — replace with your real domain
+  ORIGENES_PERMITIDOS=https://miempresa.com
+  ```
+
+  The backend allows `GET`, `POST`, `PUT`, `DELETE`, and `OPTIONS` methods, and accepts `Authorization`, `Content-Type`, and `X-CSRF-Token` headers from allowed origins. Credentials (cookies) are also permitted.
+</ParamField>
+
+<ParamField path="HOSTS_PERMITIDOS" type="string" default="">
+  Comma-separated list of allowed `Host` header values, enforced by FastAPI's `TrustedHostMiddleware`. This variable is **only applied when `ENTORNO=produccion`**. Requests whose `Host` header does not match this list are rejected with a 400 response.
+
+  ```bash
+  # Production
+  HOSTS_PERMITIDOS=miempresa.com
+  ```
+
+  Leave this variable unset or empty in development; it has no effect in `desarrollo` mode.
+</ParamField>
+
+<ParamField path="ADMIN_USUARIO" type="string" default="admin">
+  Username for the initial administrator account. This value is only used once — when the application starts for the first time and finds an empty database. It has no effect on subsequent startups.
+</ParamField>
+
+<ParamField path="ADMIN_NOMBRE" type="string" default="Administrador">
+  Display name for the initial administrator account. Like `ADMIN_USUARIO`, this is only applied during the very first startup against an empty database.
+</ParamField>
+
+<ParamField path="ADMIN_PASSWORD" type="string" default="">
+  Password for the initial administrator account.
+
+  - If you provide a value, that exact string will be set as the admin password (must be at least 8 characters).
+  - If you leave it blank (the default), a cryptographically random 12-character password is generated using `secrets.token_urlsafe(12)` and printed to the server console. **It is shown only once and never stored in plain text.**
+
+  This variable has no effect after the first startup.
+</ParamField>
+
+<ParamField path="RATE_LIMIT_GENERAL" type="string" default="120/minute">
+  Rate limit applied to **all routes** by IP address, using [SlowAPI](https://slowapi.readthedocs.io/) backed by the storage configured in `RATE_LIMIT_STORAGE`. The format follows the SlowAPI/limits convention: `{count}/{period}` where period can be `second`, `minute`, `hour`, or `day`.
+
+  ```bash
+  RATE_LIMIT_GENERAL=120/minute
+  ```
+
+  Requests exceeding this limit receive a `429 Too Many Requests` response with the message `"Demasiadas peticiones. Espera un momento e inténtalo de nuevo."`.
+</ParamField>
+
+<ParamField path="RATE_LIMIT_LOGIN" type="string" default="10/minute">
+  Stricter rate limit applied specifically to the `POST /login` endpoint. This acts as a second layer of brute-force protection on top of the per-user lockout mechanism (which triggers after 5 failed attempts and locks the account for 15 minutes).
+
+  ```bash
+  RATE_LIMIT_LOGIN=10/minute
+  ```
+</ParamField>
+
+<ParamField path="RATE_LIMIT_STORAGE" type="string" default="memory://">
+  Storage backend URI for SlowAPI's rate limit counters. The default `memory://` stores counters in-process, which is sufficient for a single-process deployment. For multi-worker or multi-server deployments, use a shared Redis URI.
+
+  ```bash
+  # In-process memory (default, single process only)
+  RATE_LIMIT_STORAGE=memory://
+
+  # Redis (multi-worker / multi-server)
+  RATE_LIMIT_STORAGE=redis://localhost:6379/0
+  ```
+</ParamField>
+
+<ParamField path="MAX_BODY_BYTES" type="integer" default="1048576">
+  Maximum allowed request body size in bytes. Requests whose `Content-Length` header exceeds this value are rejected with a `413 Request Entity Too Large` response before the body is read, protecting against memory exhaustion.
+
+  The default is `1048576` bytes (1 MB). Adjust upward only if your workflow requires sending larger payloads.
+
+  ```bash
+  MAX_BODY_BYTES=1048576   # 1 MB (default)
+  MAX_BODY_BYTES=524288    # 512 KB
+  ```
+</ParamField>
+
+## Frontend Variable
+
+<ParamField path="VITE_API_URL" type="string" default="http://localhost:8000">
+  The base URL of the FastAPI backend, consumed by the React frontend at build time. Vite injects this into the bundle as `import.meta.env.VITE_API_URL`.
+
+  ```bash
+  # Development (default)
+  VITE_API_URL=http://localhost:8000
+
+  # Production — replace with your real backend domain
+  VITE_API_URL=https://miempresa.com
+  ```
+
+  This must match one of the origins listed in `ORIGENES_PERMITIDOS` on the backend.
+</ParamField>
+
+## Production `.env` Example
+
+Below is an annotated `.env` suitable for a production deployment, with PostgreSQL, HTTPS, and a custom domain:
+
+```bash
+# ── Deployment mode ──────────────────────────────────────────────────────────
+# Hides /docs, enables HSTS, and enforces strict CSP.
+ENTORNO=produccion
+
+# ── Database ─────────────────────────────────────────────────────────────────
+# Full PostgreSQL connection string.
+DATABASE_URL=postgresql://gestor_user:s3cur3p4ss@db.miempresa.com:5432/gestor_db
+
+# ── Allowed origins and hosts ─────────────────────────────────────────────────
+# Only the production frontend origin may call the API.
+ORIGENES_PERMITIDOS=https://miempresa.com
+
+# TrustedHostMiddleware rejects requests with a different Host header.
+HOSTS_PERMITIDOS=miempresa.com
+
+# ── Initial admin account ────────────────────────────────────────────────────
+# Set a strong password here; you will change it immediately after first login.
+ADMIN_USUARIO=admin
+ADMIN_NOMBRE=Administrador
+ADMIN_PASSWORD=CambiaMeAhora!99
+
+# ── Frontend ──────────────────────────────────────────────────────────────────
+VITE_API_URL=https://miempresa.com
+
+# ── Rate limiting ─────────────────────────────────────────────────────────────
+RATE_LIMIT_GENERAL=120/minute
+RATE_LIMIT_LOGIN=10/minute
+# Use Redis to share counters across multiple workers.
+RATE_LIMIT_STORAGE=redis://localhost:6379/0
+
+# ── Request body size ─────────────────────────────────────────────────────────
+MAX_BODY_BYTES=1048576
+```

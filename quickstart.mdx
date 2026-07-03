@@ -1,47 +1,154 @@
 ---
-title: "Quickstart"
-description: "Begin with a guide on the fastest path to a successful outcome"
+title: "Get Started with Gestor Financiero"
+sidebarTitle: "Quickstart"
+description: "Install and run Gestor Financiero locally in under 10 minutes. Set up the FastAPI backend and React frontend with SQLite for development."
 ---
 
-Describe how someone begins using your product. What is the first thing they need to do? Are there any prerequisites?
+Gestor Financiero runs entirely on your local machine for development — no cloud accounts, no external database, and no Docker required. The backend starts a FastAPI server on port 8000, and the Vite-powered frontend runs on port 5173. SQLite handles data storage automatically, so you can go from a fresh clone to a running application in just a few steps.
 
-A quickstart should take someone from zero to using your product. They'll get a quick win and a sense of what they can accomplish.
-
-## Prerequisites
-
-Before you begin, you must have:
-
-- Requirement one (for example, Node.js 18+, a free account, an API key)
-- Requirement two (for example, a compatible device, a compatible browser, a compatible operating system)
-
-## Get started
+<Note>
+  SQLite is used automatically when the `DATABASE_URL` environment variable is not set. The database file is created at `backend/data/proyectos.db` the first time the server starts. You do not need to install or configure any database software for local development.
+</Note>
 
 <Steps>
-  <Step title="Install">
-    Describe how to install your product or sign up.
+
+  <Step title="Clone the repository">
+    Clone the project from GitHub and enter the project root:
 
     ```bash
-    npm install your-package
+    git clone https://github.com/JDzuu/AplicativoWEB_GestorFinanciero.git
+    cd AplicativoWEB_GestorFinanciero
     ```
   </Step>
-  <Step title="Configure">
-    Describe any setup or configuration needed before first use.
+
+  <Step title="Configure the environment">
+    Copy the provided example file to create your local `.env`:
 
     ```bash
-    your-cli init
+    cp .env.example .env
     ```
-  </Step>
-  <Step title="Run it">
-    Show the first thing a user does to see it working.
+
+    The file looks like this with all available options:
 
     ```bash
-    your-cli start
+    # "desarrollo" exposes /docs and disables HSTS.
+    # "produccion" hides /docs and enforces HTTPS.
+    ENTORNO=desarrollo
+
+    # Leave blank to use SQLite automatically.
+    # DATABASE_URL=postgresql://usuario:clave@servidor:5432/nombre_de_tu_base
+
+    # Comma-separated origins allowed to talk to the backend.
+    ORIGENES_PERMITIDOS=http://localhost:5173,http://127.0.0.1:5173
+
+    # (Production only) Restrict accepted Host headers.
+    # HOSTS_PERMITIDOS=miempresa.com
+
+    # Initial admin account — only used when the database is empty.
+    # Leave ADMIN_PASSWORD blank to generate a random password.
+    ADMIN_USUARIO=admin
+    ADMIN_NOMBRE=Administrador
+    ADMIN_PASSWORD=
+
+    # Frontend variable — points to the backend base URL.
+    VITE_API_URL=http://localhost:8000
     ```
+
+    For local development the defaults are fine. You can optionally pre-set `ADMIN_PASSWORD` to a value you choose; if you leave it blank a secure random password will be generated and printed to the console on first startup.
   </Step>
+
+  <Step title="Set up the backend">
+    Open a terminal and navigate to the `backend/` directory:
+
+    ```bash
+    cd backend
+    python -m venv venv
+    ```
+
+    Activate the virtual environment:
+
+    <Tabs>
+      <Tab title="Windows">
+        ```bash
+        venv\Scripts\activate
+        ```
+      </Tab>
+      <Tab title="Linux / macOS">
+        ```bash
+        source venv/bin/activate
+        ```
+      </Tab>
+    </Tabs>
+
+    Install the Python dependencies:
+
+    ```bash
+    pip install -r requirements.txt
+    ```
+
+    The `requirements.txt` installs:
+
+    | Package | Purpose |
+    |---|---|
+    | `fastapi` | Web framework and routing |
+    | `uvicorn` | ASGI server |
+    | `python-dotenv` | Loads `.env` into the environment |
+    | `pwdlib[argon2]` | Argon2id password hashing |
+    | `slowapi` | Rate limiting per IP |
+    | `reportlab` | PDF generation for quotes and project closures |
+    | `psycopg[binary,pool]` | PostgreSQL driver (not used with SQLite) |
+
+    Start the development server:
+
+    ```bash
+    uvicorn src.api:app --reload --port 8000
+    ```
+
+    The `--reload` flag restarts the server automatically whenever you change a source file.
+  </Step>
+
+  <Step title="Set up the frontend">
+    Open a **second** terminal and navigate to the `frontend/` directory:
+
+    ```bash
+    cd frontend
+    npm install
+    npm run dev
+    ```
+
+    Vite will start the development server. The frontend is configured to run on port `5173` via `vite.config.js` and communicate with the backend at the URL set in `VITE_API_URL`.
+  </Step>
+
+  <Step title="Access the application">
+    With both servers running, open your browser:
+
+    | Service | URL |
+    |---|---|
+    | Frontend (React / Vite) | http://localhost:5173 |
+    | Backend API | http://localhost:8000 |
+    | Interactive API docs (Swagger) | http://localhost:8000/docs |
+    | Alternative API docs (ReDoc) | http://localhost:8000/redoc |
+
+    <Note>
+      The `/docs`, `/redoc`, and `/openapi.json` endpoints are only available when `ENTORNO=desarrollo`. They are hidden in production.
+    </Note>
+  </Step>
+
+  <Step title="First login">
+    On the very first startup — when the database is empty — the backend automatically creates an initial administrator account using the values from your `.env`. If `ADMIN_PASSWORD` was left blank, a cryptographically random password is generated and printed **once** to the terminal:
+
+    ```
+    [SEGURIDAD] Usuario administrador inicial creado.
+    [SEGURIDAD] Usuario: 'admin'
+    [SEGURIDAD] Contraseña generada (anótala, NO se volverá a mostrar): xK1sP2bR4nLa
+    [SEGURIDAD] Inicia sesión y cámbiala cuanto antes.
+    ```
+
+    Use those credentials on the login screen at http://localhost:5173.
+
+    <Warning>
+      The generated password is printed to the console **exactly once** and is never stored in plain text anywhere. Copy it before the terminal output scrolls or the window is closed. If you lose it, delete the `backend/data/proyectos.db` file and restart the server to recreate the admin account — this will erase all data.
+    </Warning>
+  </Step>
+
 </Steps>
-
-<Tip>
-  Give people a way to get help. This could be a link to a support page, a chat with a customer support agent, or a forum for your product.
-
-  Example: Need help? Reach out to us at [support@yourcompany.com](mailto:support@yourcompany.com).
-</Tip>

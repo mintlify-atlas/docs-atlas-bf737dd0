@@ -1,0 +1,348 @@
+---
+title: "Budget Endpoints: Estimates, Items, and Conversions"
+sidebarTitle: "Budgets"
+description: "REST API reference for Gestor Financiero budget endpoints. Create itemized estimates, generate PDF quotations, and convert budgets to live projects."
+---
+
+The budget endpoints let you build detailed cost estimates before committing to a live project. Each budget (presupuesto) holds a list of cost items grouped into three categories — materials, labour, and additional expenses — and the API automatically computes a resumen (summary) with totals, a configurable markup percentage, the final selling price, and the resulting profit margin. Once a budget is approved, a single `POST` call converts it directly into an active project, seeding that project's contracted total from the calculated selling price.
+
+---
+
+## GET /presupuestos
+
+Returns all budgets, each enriched with its full item list and a computed resumen.
+
+```bash
+curl -X GET http://localhost:8000/presupuestos \
+  --cookie "sesion=<token>"
+```
+
+### Response
+
+Returns an array of presupuesto objects.
+
+<ResponseField name="id" type="integer">
+  Unique budget identifier.
+</ResponseField>
+
+<ResponseField name="nombre" type="string">
+  Budget name (up to 200 characters).
+</ResponseField>
+
+<ResponseField name="cliente" type="string">
+  Client name associated with this budget (up to 200 characters).
+</ResponseField>
+
+<ResponseField name="tipo" type="string">
+  Project type category (e.g. `Construcción`, `Remodelación`, `Muebles`, `Mantenimiento`, `Otro`).
+</ResponseField>
+
+<ResponseField name="utilidad_pct" type="decimal">
+  Markup percentage applied on top of total costs to arrive at the selling price.
+</ResponseField>
+
+<ResponseField name="estado" type="string">
+  Budget lifecycle state. Either `borrador` (draft) or `convertido` (converted to a project).
+</ResponseField>
+
+<ResponseField name="proyecto_id" type="integer | null">
+  ID of the project created from this budget, if it has been converted; otherwise `null`.
+</ResponseField>
+
+<ResponseField name="fecha_creacion" type="string">
+  ISO 8601 date on which the budget was created (e.g. `"2024-03-15"`).
+</ResponseField>
+
+<ResponseField name="creado" type="string">
+  Alias for `fecha_creacion` returned alongside it for display convenience.
+</ResponseField>
+
+<ResponseField name="items" type="array">
+  List of cost line items attached to this budget. See [POST /presupuestos/\{presupuesto_id\}/items](#post-presupuestos-presupuesto_id-items) for the item schema.
+</ResponseField>
+
+<ResponseField name="resumen" type="object">
+  Computed financial summary. See the [Resumen Object](#resumen-object) section for full field definitions.
+</ResponseField>
+
+---
+
+## GET /presupuestos/\{presupuesto_id\}
+
+Returns a single budget with its items and resumen.
+
+```bash
+curl -X GET http://localhost:8000/presupuestos/42 \
+  --cookie "sesion=<token>"
+```
+
+<ResponseField name="presupuesto_id" type="integer" required>
+  Path parameter — the ID of the budget to fetch.
+</ResponseField>
+
+Returns a single presupuesto object with the same schema as the list endpoint. Returns `404` if the budget does not exist.
+
+---
+
+## POST /presupuestos
+
+Creates a new budget in `borrador` state with an empty item list.
+
+```bash
+curl -X POST http://localhost:8000/presupuestos \
+  --cookie "sesion=<token>" \
+  -H "Content-Type: application/json" \
+  -H "X-CSRF-Token: <csrf>" \
+  -d '{
+    "nombre": "Remodelación Oficina Central",
+    "cliente": "Empresa Ejemplo S.A.",
+    "tipo": "Remodelación",
+    "utilidad_pct": 20
+  }'
+```
+
+### Request Body
+
+<ParamField body="nombre" type="string" required>
+  Budget name. Maximum 200 characters. Cannot be blank.
+</ParamField>
+
+<ParamField body="cliente" type="string" required>
+  Client name. Maximum 200 characters. Cannot be blank.
+</ParamField>
+
+<ParamField body="tipo" type="string">
+  Project type. Maximum 60 characters. Defaults to `"Otro"` if omitted. Cannot be blank if provided.
+</ParamField>
+
+<ParamField body="utilidad_pct" type="decimal">
+  Markup percentage to apply over total costs. Must be `>= 0`. Defaults to `0`.
+</ParamField>
+
+### Response
+
+Returns the full presupuesto object with an empty `items` array and zeroed `resumen` fields.
+
+---
+
+## PUT /presupuestos/\{presupuesto_id\}
+
+Updates the metadata of an existing budget (name, client, type, and markup). Item contents are not affected.
+
+```bash
+curl -X PUT http://localhost:8000/presupuestos/42 \
+  --cookie "sesion=<token>" \
+  -H "Content-Type: application/json" \
+  -H "X-CSRF-Token: <csrf>" \
+  -d '{
+    "nombre": "Remodelación Oficina Central — Rev. 2",
+    "cliente": "Empresa Ejemplo S.A.",
+    "tipo": "Remodelación",
+    "utilidad_pct": 25
+  }'
+```
+
+Accepts the same request body as `POST /presupuestos`. Returns the updated presupuesto object, or `404` if not found.
+
+---
+
+## DELETE /presupuestos/\{presupuesto_id\}
+
+Deletes a draft budget permanently.
+
+```bash
+curl -X DELETE http://localhost:8000/presupuestos/42 \
+  --cookie "sesion=<token>" \
+  -H "X-CSRF-Token: <csrf>"
+```
+
+<Warning>
+  Returns `400` if the budget has already been converted to a project (`estado == "convertido"`). Converted budgets are kept as historical records and cannot be deleted.
+</Warning>
+
+Returns `{ "ok": true }` on success.
+
+---
+
+## POST /presupuestos/\{presupuesto_id\}/items
+
+Adds a cost line item to a budget and returns the fully updated presupuesto.
+
+```bash
+curl -X POST http://localhost:8000/presupuestos/42/items \
+  --cookie "sesion=<token>" \
+  -H "Content-Type: application/json" \
+  -H "X-CSRF-Token: <csrf>" \
+  -d '{
+    "categoria": "materiales",
+    "concepto": "Melamina 18 mm",
+    "descripcion": "50 planchas para mobiliario de oficina",
+    "monto": 4500.00
+  }'
+```
+
+### Request Body
+
+<ParamField body="categoria" type="string" required>
+  Cost category. Must be one of:
+
+  | Value | Display name |
+  |---|---|
+  | `materiales` | Materiales |
+  | `mano_obra` | Mano de obra |
+  | `gastos` | Gastos adicionales |
+</ParamField>
+
+<ParamField body="concepto" type="string" required>
+  Short label for the line item (e.g. `"Herrajes para puertas"`). Maximum 200 characters. Cannot be blank.
+</ParamField>
+
+<ParamField body="descripcion" type="string">
+  Optional longer description or notes. Maximum 500 characters.
+</ParamField>
+
+<ParamField body="monto" type="decimal" required>
+  Cost amount for this item. Must be strictly greater than `0`.
+</ParamField>
+
+### Response
+
+Returns the full parent presupuesto object with the new item included and the resumen recomputed.
+
+---
+
+## DELETE /items/\{item_id\}
+
+Removes a cost item from its parent budget.
+
+```bash
+curl -X DELETE http://localhost:8000/items/17 \
+  --cookie "sesion=<token>" \
+  -H "X-CSRF-Token: <csrf>"
+```
+
+<Note>
+  If the item exists, the response is the full parent presupuesto object with the updated resumen. If the item ID is not found, the response is `{ "ok": true }` — the operation is idempotent.
+</Note>
+
+---
+
+## GET /presupuestos/\{presupuesto_id\}/pdf
+
+Generates and downloads a PDF quotation (cotización) for the budget.
+
+```bash
+curl -X GET http://localhost:8000/presupuestos/42/pdf \
+  --cookie "sesion=<token>" \
+  -o cotizacion_oficina.pdf
+```
+
+- **Content-Type:** `application/pdf`
+- **Content-Disposition:** `attachment; filename="cotizacion_{nombre}.pdf"`
+
+The filename is sanitized: accented characters are transliterated to ASCII and any characters outside `A-Za-z0-9._-` are replaced with underscores.
+
+Returns `404` if the budget does not exist.
+
+---
+
+## POST /presupuestos/\{presupuesto_id\}/convertir
+
+Converts a budget into a live project. The new project's `total` (contracted amount) is set to `resumen.precio_venta`, rounded to two decimal places.
+
+```bash
+curl -X POST http://localhost:8000/presupuestos/42/convertir \
+  --cookie "sesion=<token>" \
+  -H "X-CSRF-Token: <csrf>"
+```
+
+<Warning>
+  Returns `400` if any of the following conditions are true:
+  - The budget has already been converted (`estado == "convertido"`).
+  - The budget has no items — i.e. `resumen.costo_total` is `0`.
+</Warning>
+
+The budget's `estado` is updated to `"convertido"` and its `proyecto_id` is set to the newly created project's ID.
+
+### Response
+
+Returns the full project object for the newly created project, including its empty `entradas` and `salidas` arrays and all computed financial fields.
+
+---
+
+## Resumen Object
+
+The `resumen` object is computed server-side and returned on every budget response. All monetary fields are decimal numbers.
+
+<ResponseField name="total_materiales" type="decimal">
+  Sum of `monto` across all items with `categoria == "materiales"`.
+</ResponseField>
+
+<ResponseField name="total_mano_obra" type="decimal">
+  Sum of `monto` across all items with `categoria == "mano_obra"`.
+</ResponseField>
+
+<ResponseField name="total_gastos" type="decimal">
+  Sum of `monto` across all items with `categoria == "gastos"`.
+</ResponseField>
+
+<ResponseField name="costo_total" type="decimal">
+  `total_materiales + total_mano_obra + total_gastos`
+</ResponseField>
+
+<ResponseField name="utilidad_pct" type="decimal">
+  The markup percentage stored on the budget (`utilidad_pct`). Echoed here for convenience.
+</ResponseField>
+
+<ResponseField name="precio_venta" type="decimal">
+  `costo_total × (1 + utilidad_pct / 100)` — the recommended selling price to quote to the client.
+</ResponseField>
+
+<ResponseField name="utilidad_monto" type="decimal">
+  `precio_venta − costo_total` — absolute monetary profit at the quoted price.
+</ResponseField>
+
+<ResponseField name="margen_pct" type="decimal">
+  `(utilidad_monto / precio_venta) × 100` — profit as a percentage of the selling price. Returns `0` when `precio_venta` is `0`.
+</ResponseField>
+
+<Tip>
+  `utilidad_pct` is the **markup** (profit over cost), while `margen_pct` is the **margin** (profit over revenue). For example, a 25 % markup yields a 20 % margin.
+</Tip>
+
+---
+
+## Example: Full Budget Workflow
+
+```bash
+# 1. Create the budget
+curl -X POST http://localhost:8000/presupuestos \
+  --cookie "sesion=<token>" \
+  -H "Content-Type: application/json" \
+  -H "X-CSRF-Token: <csrf>" \
+  -d '{"nombre":"Muebles Sala","cliente":"Juan Pérez","tipo":"Muebles","utilidad_pct":30}'
+
+# 2. Add a materials item
+curl -X POST http://localhost:8000/presupuestos/1/items \
+  --cookie "sesion=<token>" \
+  -H "Content-Type: application/json" \
+  -H "X-CSRF-Token: <csrf>" \
+  -d '{"categoria":"materiales","concepto":"Madera pino","monto":1200}'
+
+# 3. Add a labour item
+curl -X POST http://localhost:8000/presupuestos/1/items \
+  --cookie "sesion=<token>" \
+  -H "Content-Type: application/json" \
+  -H "X-CSRF-Token: <csrf>" \
+  -d '{"categoria":"mano_obra","concepto":"Carpintería","monto":800}'
+
+# 4. Download the PDF quotation
+curl -X GET http://localhost:8000/presupuestos/1/pdf \
+  --cookie "sesion=<token>" \
+  -o cotizacion_Muebles_Sala.pdf
+
+# 5. Convert to a live project (precio_venta = 2000 × 1.30 = 2600)
+curl -X POST http://localhost:8000/presupuestos/1/convertir \
+  --cookie "sesion=<token>" \
+  -H "X-CSRF-Token: <csrf>"
+```

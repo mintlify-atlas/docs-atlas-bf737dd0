@@ -1,0 +1,112 @@
+---
+title: "Managing Projects Through Their Full Lifecycle"
+sidebarTitle: "Projects"
+description: "Create, update, and close financial projects in Gestor Financiero. Understand project states, pause tracking, and the contracted amount model."
+---
+
+A **project** is the central record in Gestor Financiero. It represents a single engagement with a client and captures everything needed to track it financially: a `nombre` (project name), `cliente` (client name), `tipo` (project type), `total` (the contracted amount agreed with the client), and a `fecha_inicio` (start date). All payments received from the client and all supplier expenses are recorded against a project, making it the single source of truth for a job's financial health.
+
+## Project Types
+
+When creating a project you pick one of the following standard types. If none of the predefined types fits, selecting **Otro** lets you type a custom label directly.
+
+| Type | Description |
+|---|---|
+| Construcción | New building or structural construction |
+| Remodelación | Renovation of an existing space |
+| Muebles | Custom furniture fabrication |
+| Mantenimiento | Ongoing maintenance work |
+| Otro | Any other type — a free-text label is accepted |
+
+## Project States
+
+Every project moves through a set of named states. The frontend displays a coloured badge next to each project so you can identify its stage at a glance.
+
+| State key | Label | Colour | Meaning |
+|---|---|---|---|
+| `iniciando` | Iniciando | Orange | Project just created; work has not yet started in earnest |
+| `proceso` | En proceso | Blue | Active work is underway |
+| `acabando` | Acabando | Purple | Project is in its final phase |
+| `pausa` | En pausa | Gray | Work is temporarily halted — pause time is tracked |
+| `finalizado` | Finalizado | Green | Fully completed and 100 % of the contracted amount has been collected |
+| `cancelado` | Cancelado | Red | Project was cancelled before completion |
+
+### Allowed State Transitions
+
+The three **active** states — `iniciando`, `proceso`, and `acabando` — form a group called `ESTADOS_ACTIVOS` in the backend. You can switch a project among these three freely at any time using the state selector on the project detail view (`POST /proyectos/{id}/estado`). No sequence is enforced within this group; move back and forth as the reality on the ground changes.
+
+Leaving the active group requires a dedicated action:
+
+- **Finalise** (`POST /proyectos/{id}/finalizar`) — only available when 100 % of the contracted total has been collected (see [Finalising a Project](#finalising-a-project) below).
+- **Cancel** (`POST /proyectos/{id}/cancelar`) — available from any state that is not already `finalizado` or `cancelado`. If the project is currently in `pausa`, the open pause period is automatically closed before the cancellation is recorded.
+
+```
+iniciando ──┐
+proceso   ──┼──► [active group]  ──► finalizado  (100 % collected)
+acabando  ──┘         │
+                      └──────────► cancelado   (any time)
+                      │
+                      └──── pausa ◄──► [active group]  (pause / resume)
+```
+
+## The Pause System
+
+Any project that is in an active state can be paused (`POST /proyectos/{id}/pausar`). When a pause starts, the system:
+
+1. Records the current active state as `estado_previo`.
+2. Switches the project state to `pausa`.
+3. Opens a new pause period in the `pausas` table with today's date as `inicio`.
+
+When the project is resumed (`POST /proyectos/{id}/reanudar`), the open pause period is closed with today's date as `fin`, and the project returns to the state stored in `estado_previo` (defaulting to `proceso` if none was stored).
+
+**Effective days** are then calculated as:
+
+```
+dias_efectivos = duracion_total − dias_en_pausa
+```
+
+Where `duracion_total` is the calendar span from `fecha_inicio` to `fecha_fin` (or today for open projects), and `dias_en_pausa` is the sum of all completed and open pause periods. This lets you report the real working time independently of how long the project sat idle.
+
+## Finalising a Project
+
+The finalise action is intentionally gated. The backend checks that `porcentaje_cobrado >= 100` before it will accept the request:
+
+```python
+# logica.py
+def porcentaje_cobrado_monto(total, cobrado):
+    if total <= 0:
+        return 0
+    return min(100, round(cobrado / total * 100))
+```
+
+If the check fails, the API returns HTTP 400 with the message *"Solo se puede finalizar cuando el proyecto está 100% cobrado."* The **Finalizar proyecto** button in the UI is disabled and shows a tooltip until the condition is met.
+
+Once finalised, `fecha_fin` is set to today, the state changes to `finalizado`, and the project moves from the active dashboard to the project history.
+
+## The Contracted Total
+
+The `total` field represents the amount the client agreed to pay for the entire project. It acts as a hard ceiling on client payments:
+
+- Every time an **entrada** (payment received) is added or edited, the backend validates that the new cumulative total of all payments does not exceed `total`.
+- If adding a payment would push the total over the contracted amount, the API returns an error that includes how much is still available: *"El pago supera el monto contratado. Disponible: X."*
+
+<Note>
+  Supplier expenses (salidas) are not bounded by the contracted total. Only client payments (entradas) are validated against it.
+</Note>
+
+## PDF Closure Report
+
+Once a project is finalised (or at any point after that), you can download a formal closure report:
+
+```
+GET /proyectos/{id}/pdf
+```
+
+The response is a `application/pdf` file named `cierre_{nombre}.pdf`. The report is built with **ReportLab** and includes:
+
+- Project header — name, client, type, contracted amount, start and end dates, and total duration in days.
+- A full table of **entradas** (client payments) with date, observation, and amount, plus a running total.
+- A full table of **salidas** (expenses) with date, supplier, description, and amount, plus a running total.
+- A financial summary — contracted amount, total collected, total expenses, and final profit/loss highlighted in green (gain) or red (loss).
+
+The same download is available from the **Historial** view for any closed project.

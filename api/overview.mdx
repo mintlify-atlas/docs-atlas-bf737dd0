@@ -1,0 +1,143 @@
+---
+title: "Gestor Financiero REST API Overview"
+sidebarTitle: "Overview"
+description: "Overview of the Gestor Financiero REST API: base URL, authentication model, content types, error format, rate limits, and available endpoint groups."
+---
+
+The Gestor Financiero REST API is built with **FastAPI** and served by **uvicorn**. It exposes a JSON-based interface that the React/Vite frontend consumes to manage financial projects, payments, expenses, budgets, and users for small businesses. Every route — except `/login` and the interactive-docs endpoints — requires an active session, and all state-changing requests are protected by a CSRF token verified server-side.
+
+## Base URL
+
+| Environment | URL |
+|---|---|
+| Development | `http://localhost:8000` |
+| Frontend override | Configurable via the `VITE_API_URL` environment variable in the frontend |
+
+The frontend reads `import.meta.env.VITE_API_URL` at build time and falls back to `http://localhost:8000` when the variable is not set.
+
+## Content Type
+
+All requests must send a `Content-Type: application/json` header and a JSON body where applicable. All successful responses are returned as `application/json`. The only exceptions are the PDF-export endpoints (`/proyectos/{id}/pdf` and `/presupuestos/{id}/pdf`), which return `application/pdf`.
+
+## Authentication Model
+
+The API uses **session cookies** — no API keys or Bearer tokens are required in normal usage. On a successful `POST /login` the server sets two cookies:
+
+- `sesion` — an HttpOnly cookie that carries the session token. The browser attaches it automatically to every subsequent request.
+- `csrftoken` — a JavaScript-readable cookie used for CSRF protection on mutating requests.
+
+See the [Authentication](/api/authentication) page for full details.
+
+## Interactive Documentation
+
+Swagger UI and ReDoc are available in development mode only. They are automatically disabled when the `ENTORNO` environment variable is set to `produccion`.
+
+| URL | Interface |
+|---|---|
+| `/docs` | Swagger UI (try-it-out) |
+| `/redoc` | ReDoc (read-only reference) |
+| `/openapi.json` | Raw OpenAPI schema |
+
+<Warning>
+  All three interactive-docs URLs return **404** in production (`ENTORNO=produccion`). Do not rely on them in deployed environments.
+</Warning>
+
+## Error Response Format
+
+All error responses return a JSON object with a `detail` field:
+
+```json
+{ "detail": "Error message here" }
+```
+
+For Pydantic validation errors (HTTP 422), `detail` is an **array of objects** rather than a plain string:
+
+```json
+{
+  "detail": [
+    {
+      "loc": ["body", "monto"],
+      "msg": "value is not a valid decimal",
+      "type": "type_error.decimal"
+    }
+  ]
+}
+```
+
+The frontend unwraps both formats automatically, joining multiple validation messages into a single user-facing string.
+
+## HTTP Status Codes
+
+| Code | Meaning |
+|---|---|
+| 200 | Success |
+| 400 | Bad request / business-logic validation error |
+| 401 | Not authenticated (missing or expired session) |
+| 403 | Forbidden — wrong role or CSRF token failure |
+| 404 | Resource not found |
+| 413 | Request body too large (default limit: 1 MB) |
+| 422 | Unprocessable entity — Pydantic input validation failure |
+| 429 | Rate limit exceeded or brute-force lockout |
+| 500 | Internal server error |
+
+## Rate Limits
+
+The API uses [SlowAPI](https://github.com/laurentS/slowapi) to enforce per-IP rate limits. Limits are applied globally via middleware and can be overridden with environment variables.
+
+| Scope | Default | Environment variable |
+|---|---|---|
+| All routes | 120 requests / minute | `RATE_LIMIT_GENERAL` |
+| `POST /login` | 10 requests / minute | `RATE_LIMIT_LOGIN` |
+
+When a limit is exceeded the API returns HTTP **429** with:
+
+```json
+{ "detail": "Demasiadas peticiones. Espera un momento e inténtalo de nuevo." }
+```
+
+<Tip>
+  For Redis-backed rate limiting in multi-worker deployments, set the `RATE_LIMIT_STORAGE` environment variable to a `redis://` connection string. The default storage is in-memory (`memory://`), which is not shared across processes.
+</Tip>
+
+## Security Headers
+
+Every response includes a standard set of security headers regardless of environment:
+
+- `X-Content-Type-Options: nosniff`
+- `X-Frame-Options: DENY`
+- `Referrer-Policy: no-referrer`
+- `Permissions-Policy: camera=(), microphone=(), geolocation=()`
+- `Cross-Origin-Opener-Policy: same-origin`
+- `Cross-Origin-Resource-Policy: same-origin`
+
+In production (`ENTORNO=produccion`), two additional headers are added:
+
+- `Content-Security-Policy: default-src 'none'; frame-ancestors 'none'; base-uri 'none'`
+- `Strict-Transport-Security: max-age=31536000; includeSubDomains; preload`
+
+## CORS
+
+Cross-Origin Resource Sharing is configured to allow requests from the frontend origins. The default allowed origins are `http://localhost:5173` and `http://127.0.0.1:5173`. In production, set the `ORIGENES_PERMITIDOS` environment variable to a comma-separated list of allowed origins. Credentials (cookies) are always included in the CORS policy.
+
+## Endpoint Groups
+
+<CardGroup cols={2}>
+  <Card title="Authentication" icon="lock" href="/api/authentication">
+    Login, logout, session management, CSRF tokens, and brute-force protection.
+  </Card>
+  <Card title="Projects" icon="folder" href="/api/endpoints/projects">
+    Create, read, update, and manage the full lifecycle of financial projects.
+  </Card>
+  <Card title="Finances" icon="money-bill" href="/api/endpoints/finances">
+    Record and manage incoming payments (entradas) and outgoing expenses (salidas) per project.
+  </Card>
+  <Card title="Budgets" icon="calculator" href="/api/endpoints/budgets">
+    Build itemized budget quotes, convert them to active projects, and export PDF cotizaciones.
+  </Card>
+  <Card title="Users" icon="users" href="/api/endpoints/users">
+    Admin-only user management: create, edit, reset passwords, and delete user accounts.
+  </Card>
+  <Card title="Analysis" icon="chart-bar" href="/api/endpoints/analysis">
+    Aggregate financial indicators for closed projects, filterable by year, month, or quarter.
+  </Card>
+</CardGroup>
