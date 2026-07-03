@@ -1,10 +1,10 @@
 ---
-title: "Authenticating with the Gestor Financiero API"
+title: "Gestor Financiero API Authentication — Login and Sessions"
 sidebarTitle: "Authentication"
 description: "Learn how to log in, maintain sessions with HttpOnly cookies, include CSRF tokens on mutating requests, and log out of the Gestor Financiero API."
 ---
 
-The Gestor Financiero API uses a **session-cookie authentication model** — there are no API keys or long-lived tokens to manage. When you log in, the server creates a server-side session and delivers two cookies to the browser: an HttpOnly `sesion` cookie that carries the session token, and a JavaScript-readable `csrftoken` cookie used for CSRF protection. Every subsequent request that changes state must echo that CSRF token back in the `X-CSRF-Token` request header. Sessions expire automatically after 8 hours of inactivity, and the server enforces brute-force protection at the username level.
+The Gestor Financiero API uses a **session-cookie authentication model** — there are no API keys or long-lived tokens to manage. When you log in, the server creates a server-side session and delivers two cookies to the browser: an HttpOnly `sesion` cookie that carries the session token, and a JavaScript-readable `csrftoken` cookie used for CSRF protection. Every subsequent request that changes state must echo that CSRF token back in the `X-CSRF-Token` request header. Sessions expire automatically 8 hours after they are created, and the server enforces brute-force protection at the username level.
 
 ---
 
@@ -95,7 +95,7 @@ curl -s http://localhost:8000/proyectos \
   --cookie cookies.txt
 ```
 
-### Mutating requests (POST, PUT, DELETE)
+### Mutating requests (POST, PUT, PATCH, DELETE)
 
 For any request that changes server state you must also include the `X-CSRF-Token` header whose value equals the current `csrftoken` cookie. The server compares them with a constant-time comparison; a mismatch returns HTTP **403**.
 
@@ -117,7 +117,7 @@ curl -s -X POST http://localhost:8000/proyectos \
   }'
 ```
 
-In JavaScript, the frontend reads the token from `document.cookie` and injects it automatically for all `POST`, `PUT`, and `DELETE` requests:
+In JavaScript, the frontend reads the token from `document.cookie` and injects it automatically for all `POST`, `PUT`, `PATCH`, and `DELETE` requests:
 
 ```js
 // Simplified from frontend/src/servicios/api.js

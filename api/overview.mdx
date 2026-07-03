@@ -1,5 +1,5 @@
 ---
-title: "Gestor Financiero REST API Overview"
+title: "Gestor Financiero REST API — Overview and Reference"
 sidebarTitle: "Overview"
 description: "Overview of the Gestor Financiero REST API: base URL, authentication model, content types, error format, rate limits, and available endpoint groups."
 ---
@@ -117,7 +117,16 @@ In production (`ENTORNO=produccion`), two additional headers are added:
 
 ## CORS
 
-Cross-Origin Resource Sharing is configured to allow requests from the frontend origins. The default allowed origins are `http://localhost:5173` and `http://127.0.0.1:5173`. In production, set the `ORIGENES_PERMITIDOS` environment variable to a comma-separated list of allowed origins. Credentials (cookies) are always included in the CORS policy.
+Cross-Origin Resource Sharing is configured to allow requests from the frontend origins. The default allowed origins are `http://localhost:5173` and `http://127.0.0.1:5173`. In production, set the `ORIGENES_PERMITIDOS` environment variable to a comma-separated list of allowed origins. Credentials (cookies) are always included in the CORS policy (`allow_credentials=True`).
+
+| CORS setting | Value |
+|---|---|
+| Allowed origins (default) | `http://localhost:5173`, `http://127.0.0.1:5173` |
+| Env variable to override | `ORIGENES_PERMITIDOS` (comma-separated) |
+| Allowed methods | `GET`, `POST`, `PUT`, `DELETE`, `OPTIONS` |
+| Allowed headers | `Authorization`, `Content-Type`, `X-CSRF-Token` |
+| Credentials | `true` |
+| Preflight cache (`max_age`) | 600 seconds |
 
 ## Endpoint Groups
 

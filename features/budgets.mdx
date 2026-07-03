@@ -8,12 +8,12 @@ The **Presupuestos** module lets you estimate the cost of a job before committin
 
 ## Budget Header Fields
 
-| Field | Type | Description |
-|---|---|---|
-| `nombre` | string (max 200 chars) | Name of the project being quoted |
-| `cliente` | string (max 200 chars) | Client name |
-| `tipo` | string (max 60 chars) | Project type — same options as a regular project (Construcción, Remodelación, Muebles, Mantenimiento, Otro) |
-| `utilidad_pct` | decimal (≥ 0) | Desired utility/markup percentage applied on top of total cost |
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `nombre` | string (max 200 chars) | — | Name of the project being quoted |
+| `cliente` | string (max 200 chars) | — | Client name |
+| `tipo` | string (max 60 chars) | `"Otro"` | Project type — same options as a regular project (Construcción, Remodelación, Muebles, Mantenimiento, Otro) |
+| `utilidad_pct` | decimal (≥ 0) | `0` | Desired utility/markup percentage applied on top of total cost |
 
 ## Budget States
 
@@ -70,7 +70,7 @@ The resumen is returned as part of every presupuesto response so the UI can disp
 
 Once your budget has at least one item you can generate a client-ready quotation document:
 
-```
+```http
 GET /presupuestos/{id}/pdf
 ```
 
@@ -87,7 +87,7 @@ The **Exportar cotización PDF** button in the UI is disabled while `costo_total
 
 When the client approves the quotation, convert the presupuesto to an active project:
 
-```
+```http
 POST /presupuestos/{id}/convertir
 ```
 
@@ -107,7 +107,7 @@ The new project starts in the `iniciando` state and appears immediately on the a
 
 For projects that originated from a presupuesto, the project detail page shows a live comparison of estimated versus real costs:
 
-```
+```http
 GET /proyectos/{id}/comparacion
 ```
 

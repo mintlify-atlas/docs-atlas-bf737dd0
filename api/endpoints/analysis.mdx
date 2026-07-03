@@ -1,7 +1,7 @@
 ---
 title: "Analysis Endpoint: Financial Performance Indicators"
 sidebarTitle: "Analysis"
-description: "GET /analisis — returns profitability indicators for completed projects. Supports filtering by year, month, and quarter."
+description: "GET /analisis returns profitability and loss indicators for finalized and cancelled projects. Filter results by calendar year, month, or quarter."
 ---
 
 The `/analisis` endpoint aggregates the financial outcomes of all closed projects into a set of performance indicators. It separates finalized projects (those that reached full completion) from cancelled ones, computing totals, profitability rankings, and loss detection for each group independently. All monetary values come directly from each project's recorded income entries (`entradas`) and expense entries (`salidas`) — the contracted total (`total`) is carried along for reference but does not drive the computed profit figures. Filters let you narrow the analysis to a specific calendar year, month, or quarter, making it easy to compare performance across periods.

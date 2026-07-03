@@ -88,7 +88,7 @@ Returns a list of all projects, each enriched with computed financial totals and
 
 ```bash
 curl -X GET http://localhost:8000/proyectos \
-  -H "Cookie: session=<token>"
+  --cookie cookies.txt
 ```
 
 ---
@@ -147,7 +147,7 @@ Returns the same fields as `GET /proyectos`, plus:
 
 ```bash
 curl -X GET http://localhost:8000/proyectos/42 \
-  -H "Cookie: session=<token>"
+  --cookie cookies.txt
 ```
 
 ---
@@ -189,7 +189,7 @@ Returns the full project object (same shape as `GET /proyectos/{proyecto_id}`).
 ```bash
 curl -X POST http://localhost:8000/proyectos \
   -H "Content-Type: application/json" \
-  -H "Cookie: session=<token>" \
+  --cookie cookies.txt \
   -H "X-CSRF-Token: <csrf>" \
   -d '{
     "nombre": "Remodelación Oficina Central",
@@ -227,7 +227,7 @@ Returns the full updated project object.
 ```bash
 curl -X PUT http://localhost:8000/proyectos/42 \
   -H "Content-Type: application/json" \
-  -H "Cookie: session=<token>" \
+  --cookie cookies.txt \
   -H "X-CSRF-Token: <csrf>" \
   -d '{
     "nombre": "Remodelación Oficina Central — Fase 2",
@@ -267,7 +267,7 @@ Returns the full project object with the updated `estado`.
 ```bash
 curl -X POST http://localhost:8000/proyectos/42/estado \
   -H "Content-Type: application/json" \
-  -H "Cookie: session=<token>" \
+  --cookie cookies.txt \
   -H "X-CSRF-Token: <csrf>" \
   -d '{"estado": "proceso"}'
 ```
@@ -334,7 +334,7 @@ Returns the full project object with `estado` set to `pausa` and `estado_previo`
 
 ```bash
 curl -X POST http://localhost:8000/proyectos/42/pausar \
-  -H "Cookie: session=<token>" \
+  --cookie cookies.txt \
   -H "X-CSRF-Token: <csrf>"
 ```
 
@@ -360,7 +360,7 @@ Returns the full project object with `estado` restored to the previous active st
 
 ```bash
 curl -X POST http://localhost:8000/proyectos/42/reanudar \
-  -H "Cookie: session=<token>" \
+  --cookie cookies.txt \
   -H "X-CSRF-Token: <csrf>"
 ```
 
@@ -380,7 +380,7 @@ Generates and streams the project closure PDF, produced by ReportLab. The file i
 
 Returns a binary `application/pdf` response with the header:
 
-```
+```http
 Content-Disposition: attachment; filename="cierre_{nombre}.pdf"
 ```
 
@@ -396,7 +396,7 @@ The filename is the project name sanitized to ASCII characters (accents stripped
 
 ```bash
 curl -X GET http://localhost:8000/proyectos/42/pdf \
-  -H "Cookie: session=<token>" \
+  --cookie cookies.txt \
   --output cierre_proyecto.pdf
 ```
 
@@ -464,7 +464,7 @@ Returns the static application catalogs used to populate dropdowns and validate 
 
 ```bash
 curl -X GET http://localhost:8000/catalogos \
-  -H "Cookie: session=<token>"
+  --cookie cookies.txt
 ```
 
 Example response:

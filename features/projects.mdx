@@ -22,14 +22,14 @@ When creating a project you pick one of the following standard types. If none of
 
 Every project moves through a set of named states. The frontend displays a coloured badge next to each project so you can identify its stage at a glance.
 
-| State key | Label | Colour | Meaning |
+| State key | Label | Colour (`estado_color`) | Meaning |
 |---|---|---|---|
-| `iniciando` | Iniciando | Orange | Project just created; work has not yet started in earnest |
-| `proceso` | En proceso | Blue | Active work is underway |
-| `acabando` | Acabando | Purple | Project is in its final phase |
-| `pausa` | En pausa | Gray | Work is temporarily halted — pause time is tracked |
-| `finalizado` | Finalizado | Green | Fully completed and 100 % of the contracted amount has been collected |
-| `cancelado` | Cancelado | Red | Project was cancelled before completion |
+| `iniciando` | Iniciando | `naranja` | Project just created; work has not yet started in earnest |
+| `proceso` | En proceso | `azul` | Active work is underway |
+| `acabando` | Acabando | `morado` | Project is in its final phase |
+| `pausa` | En pausa | `gris` | Work is temporarily halted — pause time is tracked |
+| `finalizado` | Finalizado | `verde` | Fully completed and 100 % of the contracted amount has been collected |
+| `cancelado` | Cancelado | `rojo` | Project was cancelled before completion |
 
 ### Allowed State Transitions
 
@@ -40,7 +40,7 @@ Leaving the active group requires a dedicated action:
 - **Finalise** (`POST /proyectos/{id}/finalizar`) — only available when 100 % of the contracted total has been collected (see [Finalising a Project](#finalising-a-project) below).
 - **Cancel** (`POST /proyectos/{id}/cancelar`) — available from any state that is not already `finalizado` or `cancelado`. If the project is currently in `pausa`, the open pause period is automatically closed before the cancellation is recorded.
 
-```
+```text
 iniciando ──┐
 proceso   ──┼──► [active group]  ──► finalizado  (100 % collected)
 acabando  ──┘         │
@@ -61,7 +61,7 @@ When the project is resumed (`POST /proyectos/{id}/reanudar`), the open pause pe
 
 **Effective days** are then calculated as:
 
-```
+```text
 dias_efectivos = duracion_total − dias_en_pausa
 ```
 
@@ -98,7 +98,7 @@ The `total` field represents the amount the client agreed to pay for the entire 
 
 Once a project is finalised (or at any point after that), you can download a formal closure report:
 
-```
+```http
 GET /proyectos/{id}/pdf
 ```
 

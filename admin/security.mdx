@@ -1,7 +1,7 @@
 ---
-title: "Security Architecture of Gestor Financiero"
+title: "Security Architecture and Hardening in Gestor Financiero"
 sidebarTitle: "Security"
-description: "Understand the security layers in Gestor Financiero: Argon2id hashing, session cookies, CSRF protection, brute-force lockout, rate limiting, and HTTP security headers."
+description: "Security layers in Gestor Financiero: Argon2id hashing, session cookies, CSRF protection, brute-force lockout, rate limiting, and HTTP security headers."
 ---
 
 Gestor Financiero follows a defense-in-depth approach aligned with OWASP recommendations. Rather than relying on any single safeguard, multiple independent layers work together: strong password hashing, session integrity via HttpOnly cookies, CSRF double-cookie protection, brute-force lockouts, per-IP rate limiting, request size caps, and a hardened set of HTTP security headers on every response. All critical validations are enforced on the backend regardless of what the frontend sends.
@@ -48,7 +48,7 @@ Gestor Financiero uses the **double-cookie pattern**. On every state-changing re
 2. The `X-CSRF-Token` request header is present.
 3. Both values match exactly — compared with `secrets.compare_digest` to prevent timing attacks.
 
-`GET`, `HEAD`, and `OPTIONS` requests are exempt. If the check fails, the API returns HTTP 403 with the message `"Token CSRF inválido o ausente."`.
+`GET`, `HEAD`, `OPTIONS`, and `TRACE` requests are exempt (`METODOS_SEGUROS`). If the check fails, the API returns HTTP 403 with the message `"Token CSRF inválido o ausente."`.
 
 The frontend reads the `csrftoken` cookie (which is intentionally not HttpOnly) and attaches its value to the `X-CSRF-Token` header on every mutating request.
 
@@ -118,7 +118,7 @@ HSTS tells browsers to **always** use HTTPS for this domain for one year — eve
 
 ## Trusted Host Enforcement
 
-In production, if the `HOSTS_PERMITIDOS` environment variable is set, FastAPI's `TrustedHostMiddleware` rejects any request whose `Host` header does not match the configured domain(s). This prevents host-header injection attacks and stops direct-IP access to the backend:
+When **both** `ENTORNO=produccion` is active **and** the `HOSTS_PERMITIDOS` environment variable is non-empty, FastAPI's `TrustedHostMiddleware` rejects any request whose `Host` header does not match the configured domain(s). This prevents host-header injection attacks and stops direct-IP access to the backend. If `HOSTS_PERMITIDOS` is not set, or if `ENTORNO` is not `produccion`, the middleware is not registered at all:
 
 ```bash
 # .env — comma-separated list of allowed hostnames

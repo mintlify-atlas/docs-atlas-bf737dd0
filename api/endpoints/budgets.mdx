@@ -157,7 +157,7 @@ curl -X DELETE http://localhost:8000/presupuestos/42 \
 ```
 
 <Warning>
-  Returns `400` if the budget has already been converted to a project (`estado == "convertido"`). Converted budgets are kept as historical records and cannot be deleted.
+  Returns `400` with `"Este presupuesto ya es un proyecto activo; queda guardado como registro y no se puede eliminar."` if the budget has already been converted to a project (`estado == "convertido"`). Converted budgets are kept as historical records and cannot be deleted.
 </Warning>
 
 Returns `{ "ok": true }` on success.
@@ -258,8 +258,9 @@ curl -X POST http://localhost:8000/presupuestos/42/convertir \
 
 <Warning>
   Returns `400` if any of the following conditions are true:
-  - The budget has already been converted (`estado == "convertido"`).
-  - The budget has no items — i.e. `resumen.costo_total` is `0`.
+
+  - **Already converted** (`estado == "convertido"`): `"Este presupuesto ya se convirtió en proyecto."`
+  - **No cost items** (`resumen.costo_total <= 0`): `"Agrega al menos una partida de costo antes de convertir."`
 </Warning>
 
 The budget's `estado` is updated to `"convertido"` and its `proyecto_id` is set to the newly created project's ID.

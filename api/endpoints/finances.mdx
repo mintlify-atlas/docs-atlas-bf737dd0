@@ -1,5 +1,5 @@
 ---
-title: "Finance Endpoints: Payments and Expense Tracking"
+title: "Finance Endpoints: Payment and Expense Record Management"
 sidebarTitle: "Finances"
 description: "REST API reference for entradas (client payments) and salidas (expenses) in Gestor Financiero. Add, update, and delete financial records per project."
 ---
@@ -37,13 +37,13 @@ Adds a new client payment record to the specified project. The total of all paym
 Returns the full project object with updated `total_entradas`, `saldo`, `ganancia`, `porcentaje`, and the new entry appended to `entradas`.
 
 <Warning>
-  Returns `400` if `monto` is zero or negative. Returns `400` if the payment would push total collected payments above the contracted project `total`; the error message includes the remaining available amount: _"El pago supera el monto contratado. Disponible: {restante}."_ Returns `404` if the project does not exist.
+  Returns `400` if `monto` is zero or negative. Returns `400` if the payment would push total collected payments above the contracted project `total`; the error message includes the remaining available amount formatted with comma thousands-separator and no decimal places — e.g. _"El pago supera el monto contratado. Disponible: 10,000."_ Returns `404` if the project does not exist.
 </Warning>
 
 ```bash
 curl -X POST http://localhost:8000/proyectos/42/entradas \
   -H "Content-Type: application/json" \
-  -H "Cookie: session=<token>" \
+  --cookie cookies.txt \
   -H "X-CSRF-Token: <csrf>" \
   -d '{
     "fecha": "2025-03-15",
@@ -113,7 +113,7 @@ Returns the full project object with recalculated financial totals.
 ```bash
 curl -X PUT http://localhost:8000/entradas/7 \
   -H "Content-Type: application/json" \
-  -H "Cookie: session=<token>" \
+  --cookie cookies.txt \
   -H "X-CSRF-Token: <csrf>" \
   -d '{
     "fecha": "2025-03-15",
@@ -197,7 +197,7 @@ Returns the full project object with updated `total_salidas`, `saldo`, `ganancia
 ```bash
 curl -X POST http://localhost:8000/proyectos/42/salidas \
   -H "Content-Type: application/json" \
-  -H "Cookie: session=<token>" \
+  --cookie cookies.txt \
   -H "X-CSRF-Token: <csrf>" \
   -d '{
     "fecha": "2025-03-10",
@@ -287,7 +287,7 @@ Returns the full project object with recalculated financial totals.
 ```bash
 curl -X PUT http://localhost:8000/salidas/12 \
   -H "Content-Type: application/json" \
-  -H "Cookie: session=<token>" \
+  --cookie cookies.txt \
   -H "X-CSRF-Token: <csrf>" \
   -d '{
     "fecha": "2025-03-10",

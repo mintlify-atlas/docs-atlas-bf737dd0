@@ -1,7 +1,7 @@
 ---
-title: "Deploying Gestor Financiero to Production"
+title: "Deploy Gestor Financiero to Production: Setup Guide"
 sidebarTitle: "Deployment"
-description: "Deploy Gestor Financiero with PostgreSQL and a production environment. Configure HTTPS, set allowed hosts, and build the React frontend."
+description: "Deploy Gestor Financiero to production with PostgreSQL, nginx, and correct environment settings. Build the React frontend and auto-initialize the schema."
 ---
 
 Gestor Financiero ships with two operating modes controlled by the `ENTORNO` environment variable. In **development** mode (`ENTORNO=desarrollo`, the default), the app uses a local SQLite file, the interactive API docs at `/docs`, `/redoc`, and `/openapi.json` are publicly accessible, and HSTS is disabled. In **production** mode (`ENTORNO=produccion`), the app connects to PostgreSQL, the API docs endpoints return 404, HSTS and a strict Content-Security-Policy are added to every response, and the `Secure` flag is applied to session cookies so they only travel over HTTPS.
@@ -18,7 +18,7 @@ When `ENTORNO=produccion` is set, the endpoints `/docs`, `/redoc`, and `/openapi
 
 Create a PostgreSQL database and a dedicated user for the application. Collect the connection string in the format:
 
-```
+```bash
 postgresql://usuario:clave@servidor:5432/nombre_base
 ```
 
